@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 /* ---------------------------------------------------------------- *
  * TaskMind — AI personal task organizer
@@ -104,6 +104,62 @@ async function callAI(payload) {
   return r.json();
 }
 
+/* ------------------------- date helpers -------------------------- */
+const pad = (n) => String(n).padStart(2, "0");
+function formatDue(iso) {
+  const d = new Date(iso);
+  const now = new Date();
+  const time = d.toLocaleTimeString("en-US", { hour: "numeric", minute: "2-digit" });
+  const tmr = new Date(now);
+  tmr.setDate(now.getDate() + 1);
+  if (d.toDateString() === now.toDateString()) return "Today · " + time;
+  if (d.toDateString() === tmr.toDateString()) return "Tomorrow · " + time;
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" }) + " · " + time;
+}
+// value for <input type="datetime-local"> from an ISO string (local time)
+function toLocalInput(iso) {
+  if (!iso) return "";
+  const d = new Date(iso);
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
+/* ----------------- press-and-hold (long press) ------------------- */
+function useHold({ onClick, onHold, ms = 500 }) {
+  const timer = useRef();
+  const held = useRef(false);
+  const clear = () => clearTimeout(timer.current);
+  return {
+    onPointerDown: () => {
+      held.current = false;
+      timer.current = setTimeout(() => {
+        held.current = true;
+        if (navigator.vibrate) try { navigator.vibrate(15); } catch (e) {}
+        onHold && onHold();
+      }, ms);
+    },
+    onPointerUp: clear,
+    onPointerLeave: clear,
+    onPointerCancel: clear,
+    onClick: (e) => {
+      if (held.current) {
+        e.preventDefault();
+        e.stopPropagation();
+        held.current = false;
+        return;
+      }
+      onClick && onClick();
+    },
+  };
+}
+
+/* --------------------------- notifications ----------------------- */
+function ensureNotifyPermission() {
+  if (!("Notification" in window)) return Promise.resolve("unsupported");
+  if (Notification.permission === "granted") return Promise.resolve("granted");
+  if (Notification.permission === "denied") return Promise.resolve("denied");
+  return Notification.requestPermission();
+}
+
 const numWord = (n) =>
   ({ 1: "One", 2: "Two", 3: "Three", 4: "Four", 5: "Five", 6: "Six", 7: "Seven", 8: "Eight", 9: "Nine" }[n] || String(n));
 function shorten(title) {
@@ -124,6 +180,12 @@ const Sun = () => (
     {[[12, 2, 12, 4], [12, 20, 12, 22], [2, 12, 4, 12], [20, 12, 22, 12], [4.9, 4.9, 6.3, 6.3], [17.7, 17.7, 19.1, 19.1], [4.9, 19.1, 6.3, 17.7], [17.7, 6.3, 19.1, 4.9]].map((l, i) => (
       <line key={i} x1={l[0]} y1={l[1]} x2={l[2]} y2={l[3]} />
     ))}
+  </svg>
+);
+const Close = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.9} strokeLinecap="round">
+    <line x1="6" y1="6" x2="18" y2="18" />
+    <line x1="18" y1="6" x2="6" y2="18" />
   </svg>
 );
 const Gear = () => (
@@ -151,6 +213,8 @@ export default function App() {
   const [generating, setGenerating] = useState(false);
   const [manual, setManual] = useState({ name: "", role: "", focus: "" });
   const [newId, setNewId] = useState(null);
+  const [editingId, setEditingId] = useState(null);
+  const [renamingCat, setRenamingCat] = useState(null);
 
   const { dark, tasks, savedContext, notify } = state;
   const c = useMemo(() => palette(dark), [dark]);
@@ -163,6 +227,28 @@ export default function App() {
   useEffect(() => {
     document.body.style.background = c.outer;
   }, [c]);
+
+  // Schedule a browser notification at each task's due time (while the app
+  // is open). Re-runs whenever tasks or notification settings change.
+  useEffect(() => {
+    if (!("Notification" in window) || Notification.permission !== "granted") return;
+    if (!notify.overdue && !notify.priority && !notify.daily) return;
+    const now = Date.now();
+    const MAX = 1000 * 60 * 60 * 24 * 20; // setTimeout safe range (~20 days)
+    const timers = tasks
+      .filter((t) => !t.done && t.due)
+      .map((t) => {
+        const delay = new Date(t.due).getTime() - now;
+        if (delay <= 0 || delay > MAX) return null;
+        return setTimeout(() => {
+          try {
+            new Notification("TaskMind", { body: `Due now: ${t.title}`, tag: "tm-" + t.id });
+          } catch (e) {}
+        }, delay);
+      })
+      .filter(Boolean);
+    return () => timers.forEach(clearTimeout);
+  }, [tasks, notify]);
 
   /* ------------------------- mutations ------------------------- */
   const addTask = async () => {
@@ -182,10 +268,39 @@ export default function App() {
     }
     setState((s) => ({ ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...result, pending: false } : t)) }));
   };
+  // Manual edit: lets the user fix the AI's call — category, priority,
+  // timing, and description — and saves it straight to localStorage.
+  const updateTask = (id, fields) => {
+    let next = { ...fields };
+    if ("due" in fields) {
+      if (fields.due) {
+        next.dateLabel = formatDue(fields.due);
+        next.overdue = new Date(fields.due).getTime() < Date.now();
+      } else {
+        next.dateLabel = next.dateLabel || "No date";
+        next.overdue = false;
+      }
+    }
+    setState((s) => ({ ...s, tasks: s.tasks.map((x) => (x.id === id ? { ...x, ...next } : x)) }));
+    if (next.due) ensureNotifyPermission();
+  };
+  // Rename a category/tab everywhere it appears.
+  const renameCategory = (from, to) => {
+    const name = (to || "").trim();
+    if (!name || name === from) return;
+    setState((s) => ({ ...s, tasks: s.tasks.map((x) => (x.category === from ? { ...x, category: name } : x)) }));
+    setFilter((f) => (f === from ? name : f));
+  };
   const toggle = (id) => setState((s) => ({ ...s, tasks: s.tasks.map((x) => (x.id === id ? { ...x, done: !x.done } : x)) }));
   const remove = (id) => setState((s) => ({ ...s, tasks: s.tasks.filter((x) => x.id !== id) }));
   const setDark = (v) => setState((s) => ({ ...s, dark: v }));
-  const toggleNotify = (key) => setState((s) => ({ ...s, notify: { ...s.notify, [key]: !s.notify[key] } }));
+  const toggleNotify = (key) => {
+    setState((s) => {
+      const on = !s.notify[key];
+      if (on) ensureNotifyPermission();
+      return { ...s, notify: { ...s.notify, [key]: on } };
+    });
+  };
   const clearContext = () => setState((s) => ({ ...s, savedContext: null }));
 
   const generateProfile = async () => {
@@ -263,7 +378,7 @@ export default function App() {
           <div style={{ display: "flex", gap: 8 }}>
             <IconBtn c={c} onClick={() => setDark(!dark)}>{dark ? <Sun /> : <Moon />}</IconBtn>
             <IconBtn c={c} onClick={() => setPage(page === "home" ? "settings" : "home")} active={page === "settings"}>
-              <Gear />
+              {page === "settings" ? <Close /> : <Gear />}
             </IconBtn>
           </div>
         </div>
@@ -273,6 +388,7 @@ export default function App() {
             c={c} head1={head1} head2={head2} subline={subline} draft={draft} setDraft={setDraft} addTask={addTask}
             filter={filter} setFilter={setFilter} filterKeys={filterKeys} visible={visible} newId={newId}
             toggle={toggle} remove={remove} isFresh={isFresh}
+            onEditTask={setEditingId} onRenameCat={setRenamingCat}
           />
         ) : (
           <Settings
@@ -286,9 +402,133 @@ export default function App() {
         <div style={{ textAlign: "center", padding: "26px 0 30px", fontSize: 11.5, color: c.faint }}>
           TaskMind · made for the way you work
         </div>
+
+        {editingId != null && (
+          <TaskEditor
+            c={c}
+            task={tasks.find((t) => t.id === editingId)}
+            categories={[...new Set(tasks.map((t) => t.category).filter(Boolean))]}
+            onSave={(fields) => { updateTask(editingId, fields); setEditingId(null); }}
+            onClose={() => setEditingId(null)}
+          />
+        )}
+        {renamingCat != null && (
+          <CategoryRename
+            c={c}
+            name={renamingCat}
+            onSave={(to) => { renameCategory(renamingCat, to); setRenamingCat(null); }}
+            onClose={() => setRenamingCat(null)}
+          />
+        )}
       </div>
     </div>
   );
+}
+
+/* ----------------------------- modals ---------------------------- */
+function Overlay({ c, children, onClose }) {
+  return (
+    <div
+      onClick={onClose}
+      style={{ position: "absolute", inset: 0, zIndex: 20, background: "rgba(0,0,0,0.45)", borderRadius: 30, display: "flex", alignItems: "flex-end" }}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        style={{ width: "100%", background: c.bg, borderRadius: "22px 22px 30px 30px", border: "1px solid " + c.frame, borderBottom: "none", padding: "20px 22px 26px", animation: "tmIn .2s ease both", maxHeight: "90%", overflowY: "auto" }}
+        className="tmx"
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function TaskEditor({ c, task, categories, onSave, onClose }) {
+  const [title, setTitle] = useState(task.title || "");
+  const [category, setCategory] = useState(task.category || "");
+  const [priority, setPriority] = useState(task.priority || "Medium");
+  const [reason, setReason] = useState(task.reason || "");
+  const [due, setDue] = useState(toLocalInput(task.due));
+
+  const input = { width: "100%", border: "1px solid " + c.line, borderRadius: 11, background: c.card, padding: "11px 13px", fontFamily: "inherit", fontSize: 13.5, color: c.text, outline: "none" };
+  const seg = { flex: 1, cursor: "pointer", border: "none", borderRadius: 8, fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, padding: "9px 0", transition: "all .15s" };
+
+  const save = () => {
+    onSave({
+      title: title.trim() || task.title,
+      category: category.trim(),
+      priority,
+      reason: reason.trim(),
+      due: due ? new Date(due).toISOString() : "",
+    });
+  };
+
+  return (
+    <Overlay c={c} onClose={onClose}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <div className="serif" style={{ fontSize: 22, fontStyle: "italic" }}>Edit task</div>
+        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: c.sub }}><Close /></button>
+      </div>
+
+      <Lbl c={c}>Task</Lbl>
+      <textarea rows={2} value={title} onChange={(e) => setTitle(e.target.value)} style={{ ...input, resize: "vertical", lineHeight: 1.4 }} />
+
+      <Lbl c={c}>Category</Lbl>
+      <input list="tm-cats" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="e.g. Work, Health, Errands" style={input} />
+      <datalist id="tm-cats">{categories.map((k) => <option key={k} value={k} />)}</datalist>
+
+      <Lbl c={c}>Priority</Lbl>
+      <div style={{ display: "flex", gap: 6, background: c.seg, borderRadius: 10, padding: 4 }}>
+        {["High", "Medium", "Low"].map((p) => {
+          const on = priority === p;
+          return (
+            <button key={p} onClick={() => setPriority(p)} style={{ ...seg, background: on ? c.segActive : "transparent", color: on ? (c.pris[p] || c.text) : c.sub, boxShadow: on ? "0 1px 3px rgba(0,0,0,0.13)" : "none" }}>
+              {p}
+            </button>
+          );
+        })}
+      </div>
+
+      <Lbl c={c}>Due date &amp; time</Lbl>
+      <div style={{ display: "flex", gap: 8 }}>
+        <input type="datetime-local" value={due} onChange={(e) => setDue(e.target.value)} style={{ ...input, flex: 1, colorScheme: "light dark" }} />
+        {due && <button onClick={() => setDue("")} style={{ border: "1px solid " + c.line, background: "transparent", color: c.sub, borderRadius: 11, cursor: "pointer", padding: "0 12px", fontFamily: "inherit", fontSize: 12.5 }}>Clear</button>}
+      </div>
+      <div style={{ fontSize: 11, color: c.faint, marginTop: 6 }}>You'll get a notification at this time (while TaskMind is open).</div>
+
+      <Lbl c={c}>Note</Lbl>
+      <textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why this matters, context, anything…" style={{ ...input, resize: "vertical", lineHeight: 1.4 }} />
+
+      <button onClick={save} style={{ marginTop: 18, width: "100%", border: "none", borderRadius: 12, cursor: "pointer", background: c.accent, color: "#fff", fontFamily: "inherit", fontSize: 14, fontWeight: 600, padding: "13px 0" }}>
+        Save changes
+      </button>
+    </Overlay>
+  );
+}
+
+function CategoryRename({ c, name, onSave, onClose }) {
+  const [value, setValue] = useState(name);
+  return (
+    <Overlay c={c} onClose={onClose}>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+        <div className="serif" style={{ fontSize: 22, fontStyle: "italic" }}>Rename tab</div>
+        <button onClick={onClose} style={{ background: "none", border: "none", cursor: "pointer", color: c.sub }}><Close /></button>
+      </div>
+      <div style={{ fontSize: 12.5, color: c.sub, marginBottom: 12 }}>Renames “{name}” on every task in it.</div>
+      <input
+        autoFocus value={value} onChange={(e) => setValue(e.target.value)}
+        onKeyDown={(e) => { if (e.key === "Enter") onSave(value); }}
+        style={{ width: "100%", border: "1px solid " + c.line, borderRadius: 11, background: c.card, padding: "12px 14px", fontFamily: "inherit", fontSize: 14, color: c.text, outline: "none" }}
+      />
+      <button onClick={() => onSave(value)} style={{ marginTop: 16, width: "100%", border: "none", borderRadius: 12, cursor: "pointer", background: c.accent, color: "#fff", fontFamily: "inherit", fontSize: 14, fontWeight: 600, padding: "13px 0" }}>
+        Save
+      </button>
+    </Overlay>
+  );
+}
+
+function Lbl({ c, children }) {
+  return <div style={{ fontSize: 11.5, fontWeight: 600, color: c.text, opacity: 0.8, margin: "16px 0 6px" }}>{children}</div>;
 }
 
 /* ----------------------- small components ------------------------ */
@@ -307,7 +547,7 @@ function IconBtn({ c, onClick, children, active }) {
   );
 }
 
-function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setFilter, filterKeys, visible, newId, toggle, remove, isFresh }) {
+function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setFilter, filterKeys, visible, newId, toggle, remove, isFresh, onEditTask, onRenameCat }) {
   return (
     <div style={{ padding: "6px 24px 0" }}>
       <div style={{ paddingTop: 14 }}>
@@ -333,22 +573,9 @@ function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setF
 
       {filterKeys.length > 0 && (
         <div className="tmx" style={{ marginTop: 22, display: "flex", gap: 18, overflowX: "auto", borderBottom: "1px solid " + c.line }}>
-          {filterKeys.map((k) => {
-            const active = filter === k;
-            return (
-              <button
-                key={k} onClick={() => setFilter(k)}
-                style={{
-                  flexShrink: 0, cursor: "pointer", background: "none", border: "none", fontFamily: "inherit",
-                  fontSize: 12.5, padding: "0 0 9px", whiteSpace: "nowrap", transition: "all .15s",
-                  color: active ? c.text : c.sub, fontWeight: active ? 600 : 450,
-                  borderBottom: "1.5px solid " + (active ? c.accent : "transparent"),
-                }}
-              >
-                {k === "all" ? "All" : k}
-              </button>
-            );
-          })}
+          {filterKeys.map((k) => (
+            <Tab key={k} c={c} k={k} active={filter === k} onSelect={() => setFilter(k)} onRename={() => onRenameCat(k)} />
+          ))}
         </div>
       )}
 
@@ -361,7 +588,7 @@ function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setF
           </div>
         ) : (
           visible.map((t, i) => (
-            <TaskRow key={t.id} t={t} last={i === visible.length - 1} c={c} newId={newId} toggle={toggle} remove={remove} />
+            <TaskRow key={t.id} t={t} last={i === visible.length - 1} c={c} newId={newId} toggle={toggle} remove={remove} onEdit={() => onEditTask(t.id)} />
           ))
         )}
       </div>
@@ -369,19 +596,42 @@ function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setF
   );
 }
 
-function TaskRow({ t, last, c, newId, toggle, remove }) {
+function Tab({ c, k, active, onSelect, onRename }) {
+  const hold = useHold({ onClick: onSelect, onHold: k === "all" ? undefined : onRename });
+  return (
+    <button
+      {...hold}
+      title={k === "all" ? "" : "Press and hold to rename"}
+      style={{
+        flexShrink: 0, cursor: "pointer", background: "none", border: "none", fontFamily: "inherit",
+        fontSize: 12.5, padding: "0 0 9px", whiteSpace: "nowrap", transition: "all .15s", touchAction: "manipulation",
+        color: active ? c.text : c.sub, fontWeight: active ? 600 : 450,
+        borderBottom: "1.5px solid " + (active ? c.accent : "transparent"),
+      }}
+    >
+      {k === "all" ? "All" : k}
+    </button>
+  );
+}
+
+function TaskRow({ t, last, c, newId, toggle, remove, onEdit }) {
   const cColor = t.category ? catColor(t.category, c) : c.sub;
   const priColor = c.pris[t.priority] || c.sub;
+  const hold = useHold({ onHold: t.pending ? undefined : onEdit });
+  const stop = { onPointerDown: (e) => e.stopPropagation() };
   return (
     <div
+      {...hold}
+      title="Press and hold to edit"
       style={{
-        padding: "17px 0", display: "flex", gap: 13, alignItems: "flex-start",
-        animation: t.id === newId ? "tmIn .25s ease both" : undefined,
+        padding: "17px 0", display: "flex", gap: 13, alignItems: "flex-start", touchAction: "manipulation",
+        animation: t.id === newId ? "tmIn .25s ease both" : undefined, cursor: t.pending ? "default" : "pointer",
         borderBottom: last ? "none" : "1px solid " + c.line, opacity: t.done ? 0.5 : 1,
       }}
     >
       <div
-        onClick={() => !t.pending && toggle(t.id)}
+        {...stop}
+        onClick={(e) => { e.stopPropagation(); !t.pending && toggle(t.id); }}
         style={{
           flexShrink: 0, width: 19, height: 19, marginTop: 2, borderRadius: "50%", cursor: t.pending ? "default" : "pointer",
           display: "flex", alignItems: "center", justifyContent: "center", transition: "all .15s",
@@ -417,7 +667,8 @@ function TaskRow({ t, last, c, newId, toggle, remove }) {
         )}
       </div>
       <button
-        onClick={() => remove(t.id)}
+        {...stop}
+        onClick={(e) => { e.stopPropagation(); remove(t.id); }}
         style={{ flexShrink: 0, cursor: "pointer", background: "none", border: "none", color: c.delete, fontSize: 18, lineHeight: 1, padding: "0 2px" }}
         aria-label="Delete task"
       >
