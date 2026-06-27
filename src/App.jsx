@@ -18,7 +18,25 @@ const DEFAULT_STATE = {
   savedContext: null,
   notify: { daily: true, overdue: true, priority: false },
   aiSummary: null, // { sig, line1, line2 } — funny+motivational home headline
+  sync: { code: "", lastSyncedAt: 0 }, // private cross-device sync
 };
+
+// Fields that sync across devices (theme stays per-device on purpose).
+const syncableData = (s) => ({ tasks: s.tasks, savedContext: s.savedContext, notify: s.notify, aiSummary: s.aiSummary });
+
+const SYNC_WORDS_A = ["swift", "calm", "bright", "bold", "quiet", "lucky", "amber", "cobalt", "ember", "misty", "noble", "brisk"];
+const SYNC_WORDS_B = ["otter", "falcon", "cedar", "harbor", "lantern", "pixel", "comet", "willow", "raven", "meadow", "quartz", "delta"];
+function makeSyncCode() {
+  const a = SYNC_WORDS_A[Math.floor(Math.random() * SYNC_WORDS_A.length)];
+  const b = SYNC_WORDS_B[Math.floor(Math.random() * SYNC_WORDS_B.length)];
+  return `${a}-${b}-${Math.floor(1000 + Math.random() * 9000)}`;
+}
+async function callSync(payload) {
+  const r = await fetch("/api/sync", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(payload) });
+  const ct = r.headers.get("content-type") || "";
+  if (!r.ok || !ct.includes("application/json")) throw new Error("sync unavailable");
+  return r.json();
+}
 
 // Signature of the task state that the summary depends on. If it doesn't
 // change, we keep the cached summary instead of spending another API call.
@@ -242,6 +260,7 @@ export default function App() {
   const [editingId, setEditingId] = useState(null);
   const [renamingCat, setRenamingCat] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
+  const [syncState, setSyncState] = useState("idle"); // idle | syncing | ok | error
 
   const { dark, tasks, savedContext, notify } = state;
   const c = useMemo(() => palette(dark), [dark]);
@@ -302,6 +321,90 @@ export default function App() {
       .filter(Boolean);
     return () => timers.forEach(clearTimeout);
   }, [tasks, notify]);
+
+  /* --------------------------- sync ---------------------------- */
+  const code = state.sync?.code || "";
+  const pushTimer = useRef();
+  const lastPushedSig = useRef("");
+
+  const pushNow = async () => {
+    if (!code) return;
+    const data = syncableData(state);
+    const sig = JSON.stringify(data);
+    setSyncState("syncing");
+    try {
+      const out = await callSync({ action: "push", code, data });
+      lastPushedSig.current = sig;
+      setState((s) => ({ ...s, sync: { ...s.sync, lastSyncedAt: out.updatedAt } }));
+      setSyncState("ok");
+    } catch (e) {
+      setSyncState("error");
+    }
+  };
+
+  const pullNow = async () => {
+    if (!code) return;
+    setSyncState("syncing");
+    try {
+      const out = await callSync({ action: "pull", code });
+      if (out.blob && out.blob.data && (out.blob.updatedAt || 0) > (state.sync?.lastSyncedAt || 0)) {
+        lastPushedSig.current = JSON.stringify(out.blob.data);
+        setState((s) => ({ ...s, ...out.blob.data, sync: { ...s.sync, lastSyncedAt: out.blob.updatedAt } }));
+      }
+      setSyncState("ok");
+    } catch (e) {
+      setSyncState("error");
+    }
+  };
+
+  // Create a new code (seed remote with local data) or join an existing one
+  // (adopt remote data onto this device).
+  const connectSync = async (rawCode) => {
+    const c = (rawCode || "").trim().toLowerCase();
+    if (!c) return;
+    setSyncState("syncing");
+    try {
+      const out = await callSync({ action: "pull", code: c });
+      if (out.blob && out.blob.data) {
+        lastPushedSig.current = JSON.stringify(out.blob.data);
+        setState((s) => ({ ...s, ...out.blob.data, sync: { code: c, lastSyncedAt: out.blob.updatedAt || Date.now() } }));
+      } else {
+        const data = syncableData(state);
+        const push = await callSync({ action: "push", code: c, data });
+        lastPushedSig.current = JSON.stringify(data);
+        setState((s) => ({ ...s, sync: { code: c, lastSyncedAt: push.updatedAt } }));
+      }
+      setSyncState("ok");
+    } catch (e) {
+      setSyncState("error");
+    }
+  };
+
+  const disconnectSync = () => {
+    setState((s) => ({ ...s, sync: { code: "", lastSyncedAt: 0 } }));
+    setSyncState("idle");
+  };
+
+  // Pull on mount and whenever the window regains focus (e.g. switching back).
+  useEffect(() => {
+    if (!code) return;
+    pullNow();
+    const onFocus = () => pullNow();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [code]);
+
+  // Debounced push whenever the synced data actually changes.
+  useEffect(() => {
+    if (!code) return;
+    const sig = JSON.stringify(syncableData(state));
+    if (sig === lastPushedSig.current) return;
+    clearTimeout(pushTimer.current);
+    pushTimer.current = setTimeout(() => pushNow(), 1200);
+    return () => clearTimeout(pushTimer.current);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.tasks, state.savedContext, state.notify, state.aiSummary, code]);
 
   /* ------------------------- mutations ------------------------- */
   const addTask = async () => {
@@ -487,6 +590,8 @@ export default function App() {
             generateProfile={generateProfile} manual={manual} setManual={setManual} saveManual={saveManual}
             promptCopied={promptCopied} copyPrompt={copyPrompt} pasteText={pasteText} setPasteText={setPasteText} savePasted={savePasted}
             notify={notify} toggleNotify={toggleNotify}
+            syncCode={code} syncState={syncState} lastSyncedAt={state.sync?.lastSyncedAt}
+            connectSync={connectSync} disconnectSync={disconnectSync} pullNow={pullNow}
           />
         )}
 
@@ -830,7 +935,7 @@ function Settings(props) {
   const {
     c, dark, setDark, ctxMode, setCtxMode, savedContext, clearContext, aiAbout, setAiAbout, generating,
     generateProfile, manual, setManual, saveManual, promptCopied, copyPrompt, pasteText, setPasteText, savePasted,
-    notify, toggleNotify,
+    notify, toggleNotify, syncCode, syncState, lastSyncedAt, connectSync, disconnectSync, pullNow,
   } = props;
 
   const segBase = { flex: 1, cursor: "pointer", border: "none", borderRadius: 9, fontFamily: "inherit", fontSize: 12.5, fontWeight: 500, padding: "9px 0", transition: "all .15s" };
@@ -935,6 +1040,66 @@ function Settings(props) {
           </div>
         ))}
       </Section>
+
+      <Section c={c} title="Sync across devices" sub="Use one private code on your phone and PC to keep tasks in sync. No account — keep the code to yourself.">
+        <SyncSection c={c} syncCode={syncCode} syncState={syncState} lastSyncedAt={lastSyncedAt} connectSync={connectSync} disconnectSync={disconnectSync} pullNow={pullNow} />
+      </Section>
+    </div>
+  );
+}
+
+function SyncSection({ c, syncCode, syncState, lastSyncedAt, connectSync, disconnectSync, pullNow }) {
+  const [entry, setEntry] = useState("");
+  const [copied, setCopied] = useState(false);
+  const input = { width: "100%", border: "1px solid " + c.line, borderRadius: 11, background: c.card, padding: "11px 13px", fontFamily: "inherit", fontSize: 13.5, color: c.text, outline: "none" };
+  const btn = (bg, color) => ({ cursor: "pointer", border: "none", borderRadius: 10, fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, padding: "10px 14px", background: bg, color });
+
+  const statusLabel = { idle: "", syncing: "Syncing…", ok: "Synced", error: "Sync failed — check connection" }[syncState] || "";
+  const when = lastSyncedAt ? new Date(lastSyncedAt).toLocaleString("en-US", { hour: "numeric", minute: "2-digit", month: "short", day: "numeric" }) : "";
+
+  if (syncCode) {
+    return (
+      <div style={{ background: c.card, border: "1px solid " + c.line, borderRadius: 14, padding: 16 }}>
+        <div style={{ fontSize: 11.5, color: c.faint, marginBottom: 6 }}>Your sync code</div>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <code style={{ flex: 1, fontSize: 16, fontWeight: 600, letterSpacing: "0.02em", color: c.text }}>{syncCode}</code>
+          <button
+            onClick={() => { try { navigator.clipboard.writeText(syncCode); } catch (e) {} setCopied(true); setTimeout(() => setCopied(false), 1500); }}
+            style={btn(copied ? c.green : "transparent", copied ? "#fff" : c.text)}
+          >
+            {copied ? "Copied ✓" : "Copy"}
+          </button>
+        </div>
+        <div style={{ marginTop: 12, fontSize: 12, color: c.sub, lineHeight: 1.6 }}>
+          Enter this same code in TaskMind on your other device to sync. {statusLabel && <strong style={{ color: syncState === "error" ? c.accent : c.green }}>{statusLabel}</strong>}{when && syncState !== "error" ? ` · last ${when}` : ""}
+        </div>
+        <div style={{ display: "flex", gap: 8, marginTop: 14 }}>
+          <button onClick={pullNow} style={btn(c.accent, "#fff")}>Sync now</button>
+          <button onClick={disconnectSync} style={{ ...btn("transparent", c.sub), border: "1px solid " + c.line }}>Disconnect</button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <button onClick={() => connectSync(makeSyncCode())} style={{ ...btn(c.accent, "#fff"), width: "100%", padding: "12px 0" }}>
+        Create a sync code
+      </button>
+      <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "16px 0", color: c.faint, fontSize: 11.5 }}>
+        <span style={{ flex: 1, height: 1, background: c.line }} />
+        or join from another device
+        <span style={{ flex: 1, height: 1, background: c.line }} />
+      </div>
+      <input
+        value={entry} onChange={(e) => setEntry(e.target.value)} placeholder="Enter an existing code…"
+        onKeyDown={(e) => { if (e.key === "Enter") connectSync(entry); }} style={input}
+      />
+      <div style={{ fontSize: 11, color: c.faint, marginTop: 6 }}>Joining replaces this device's tasks with the synced ones.</div>
+      <button onClick={() => connectSync(entry)} disabled={!entry.trim()} style={{ ...btn(entry.trim() ? c.accent : c.seg, entry.trim() ? "#fff" : c.faint), width: "100%", marginTop: 10, padding: "11px 0", cursor: entry.trim() ? "pointer" : "default" }}>
+        {syncState === "syncing" ? "Connecting…" : "Join sync"}
+      </button>
+      {syncState === "error" && <div style={{ fontSize: 12, color: c.accent, marginTop: 8 }}>Couldn't connect. Make sure sync is set up and try again.</div>}
     </div>
   );
 }
