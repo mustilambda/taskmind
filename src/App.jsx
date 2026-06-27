@@ -316,27 +316,40 @@ export default function App() {
     return () => { cancelled = true; clearTimeout(h); };
   }, [tasks, savedContext]);
 
-  // Schedule a browser notification at each task's due time (while the app
-  // is open). Re-runs whenever tasks or notification settings change.
+  // Fire a "due now" notification for any task whose time has arrived (while
+  // the app is open). A poller — instead of one setTimeout per task — is robust
+  // against re-renders, background-tab throttling, and granting permission
+  // after load: it checks every 20s and whenever the window regains focus,
+  // and a ref tracks what's already been notified so nothing double-fires.
+  const notifiedRef = useRef(new Set());
   useEffect(() => {
-    if (!("Notification" in window) || Notification.permission !== "granted") return;
-    if (!notify.overdue && !notify.priority && !notify.daily) return;
+    const check = () => {
+      if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
+      if (!notify.overdue && !notify.priority && !notify.daily) return;
+      const now = Date.now();
+      tasks.forEach((t) => {
+        if (t.done || !t.due || notifiedRef.current.has(t.id)) return;
+        const at = new Date(t.due).getTime();
+        if (at <= now && now - at < 1000 * 60 * 60 * 12) {
+          // due within the last 12h and not yet notified → fire once
+          notifiedRef.current.add(t.id);
+          try { new Notification("TaskMind", { body: `Due now: ${t.title}`, tag: "tm-" + t.id }); } catch (e) {}
+        }
+      });
+    };
+    check();
+    const i = setInterval(check, 20000);
+    window.addEventListener("focus", check);
+    return () => { clearInterval(i); window.removeEventListener("focus", check); };
+  }, [tasks, notify, notifPerm]);
+
+  // If a task's due time is edited to the future again, allow it to re-notify.
+  useEffect(() => {
     const now = Date.now();
-    const MAX = 1000 * 60 * 60 * 24 * 20; // setTimeout safe range (~20 days)
-    const timers = tasks
-      .filter((t) => !t.done && t.due)
-      .map((t) => {
-        const delay = new Date(t.due).getTime() - now;
-        if (delay <= 0 || delay > MAX) return null;
-        return setTimeout(() => {
-          try {
-            new Notification("TaskMind", { body: `Due now: ${t.title}`, tag: "tm-" + t.id });
-          } catch (e) {}
-        }, delay);
-      })
-      .filter(Boolean);
-    return () => timers.forEach(clearTimeout);
-  }, [tasks, notify]);
+    tasks.forEach((t) => {
+      if (t.due && new Date(t.due).getTime() > now) notifiedRef.current.delete(t.id);
+    });
+  }, [tasks]);
 
   /* --------------------------- sync ---------------------------- */
   const code = state.sync?.code || "";
@@ -1078,7 +1091,17 @@ function PermBanner({ c, notifPerm, enableNotifs }) {
   if (notifPerm === "unsupported")
     return <div style={{ ...box(c.card, c.line), fontSize: 12, color: c.sub }}>This browser doesn't support notifications.</div>;
   if (notifPerm === "granted")
-    return <div style={{ ...box(c.card, c.line), fontSize: 12.5, color: c.green, fontWeight: 600 }}>🔔 Notifications enabled</div>;
+    return (
+      <div style={box(c.card, c.line)}>
+        <span style={{ fontSize: 12.5, color: c.green, fontWeight: 600 }}>🔔 Notifications enabled</span>
+        <button
+          onClick={enableNotifs}
+          style={{ flexShrink: 0, cursor: "pointer", border: "1px solid " + c.line, borderRadius: 9, background: "transparent", color: c.text, fontFamily: "inherit", fontSize: 12, fontWeight: 600, padding: "7px 12px" }}
+        >
+          Send test
+        </button>
+      </div>
+    );
   if (notifPerm === "denied")
     return (
       <div style={{ ...box(c.card, c.line), fontSize: 12, color: c.sub, lineHeight: 1.5 }}>
