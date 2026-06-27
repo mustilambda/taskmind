@@ -316,8 +316,17 @@ export default function App() {
   const savePasted = () => {
     const text = pasteText.trim();
     if (!text) return;
+    // keep pasteText so the same summary stays available for re-editing
     setState((s) => ({ ...s, savedContext: { text, source: "AI summary", cats: detectCatsLocal(text) } }));
-    setPasteText("");
+  };
+  // Editing saved context preloads the existing text so the user can reuse
+  // or tweak the same summary instead of starting from a blank box.
+  const editContext = () => {
+    if (savedContext) {
+      setCtxMode("ai");
+      setPasteText(savedContext.text || "");
+    }
+    setState((s) => ({ ...s, savedContext: null }));
   };
   const saveManual = () => {
     const { name, role, focus } = manual;
@@ -395,7 +404,7 @@ export default function App() {
         ) : (
           <Settings
             c={c} dark={dark} setDark={setDark} ctxMode={ctxMode} setCtxMode={setCtxMode} savedContext={savedContext}
-            clearContext={clearContext} aiAbout={aiAbout} setAiAbout={setAiAbout} generating={generating}
+            clearContext={editContext} aiAbout={aiAbout} setAiAbout={setAiAbout} generating={generating}
             generateProfile={generateProfile} manual={manual} setManual={setManual} saveManual={saveManual}
             promptCopied={promptCopied} copyPrompt={copyPrompt} pasteText={pasteText} setPasteText={setPasteText} savePasted={savePasted}
             notify={notify} toggleNotify={toggleNotify}
@@ -660,10 +669,14 @@ function Tab({ c, k, active, onSelect, onRename }) {
         {isAll ? "All" : k}
       </button>
       {!isAll && (
-        <Menu
-          c={c} align="left" items={[{ label: "Rename tab", onClick: onRename }]}
-          btnStyle={{ background: "none", border: "none", cursor: "pointer", color: active ? c.sub : c.faint, display: "flex", alignItems: "center", padding: 0, opacity: 0.8 }}
-        />
+        <button
+          onClick={(e) => { e.stopPropagation(); onRename(); }}
+          title="Rename tab"
+          aria-label="Rename tab"
+          style={{ background: "none", border: "none", cursor: "pointer", color: active ? c.sub : c.faint, display: "flex", alignItems: "center", padding: 0, opacity: 0.85 }}
+        >
+          <Dots />
+        </button>
       )}
     </span>
   );
