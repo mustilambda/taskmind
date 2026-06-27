@@ -1,0 +1,40 @@
+* {
+  box-sizing: border-box;
+  -webkit-font-smoothing: antialiased;
+}
+html,
+body {
+  margin: 0;
+  padding: 0;
+}
+body {
+  font-family: "Space Grotesk", -apple-system, BlinkMacSystemFont, sans-serif;
+}
+::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+.tmx {
+  scrollbar-width: none;
+}
+textarea::placeholder,
+input::placeholder {
+  color: inherit;
+  opacity: 0.5;
+}
+@keyframes tmIn {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
+}
+.serif {
+  font-family: "Instrument Serif", Georgia, "Times New Roman", serif;
+}
+button {
+  font-family: inherit;
+}
