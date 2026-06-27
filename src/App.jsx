@@ -18,6 +18,17 @@ const DEFAULT_STATE = {
   notify: { daily: true, overdue: true, priority: false },
 };
 
+const PROMPT =
+  "I'm setting up TaskMind, a personal AI task organizer. Write a short profile of me (4–6 sentences) that it can use as context when sorting my tasks by category, priority, and due date.\n" +
+  "Cover:\n" +
+  "• my role and field\n" +
+  "• the projects I'm working on right now\n" +
+  "• the kinds of work I juggle (content, app dev, brand, research, admin, personal)\n" +
+  "• my usual deadlines and what I treat as high priority\n" +
+  "• how I like to work\n" +
+  "Here's a bit about me: [WRITE A FEW WORDS ABOUT YOURSELF]\n" +
+  "Return only the profile paragraph — nothing else.";
+
 const NOTIF_DEFS = [
   { key: "daily", label: "Daily summary", desc: "A morning digest of what's due today." },
   { key: "overdue", label: "Overdue reminders", desc: "Nudge me when something slips past its date." },
@@ -123,35 +134,6 @@ function toLocalInput(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-/* ----------------- press-and-hold (long press) ------------------- */
-function useHold({ onClick, onHold, ms = 500 }) {
-  const timer = useRef();
-  const held = useRef(false);
-  const clear = () => clearTimeout(timer.current);
-  return {
-    onPointerDown: () => {
-      held.current = false;
-      timer.current = setTimeout(() => {
-        held.current = true;
-        if (navigator.vibrate) try { navigator.vibrate(15); } catch (e) {}
-        onHold && onHold();
-      }, ms);
-    },
-    onPointerUp: clear,
-    onPointerLeave: clear,
-    onPointerCancel: clear,
-    onClick: (e) => {
-      if (held.current) {
-        e.preventDefault();
-        e.stopPropagation();
-        held.current = false;
-        return;
-      }
-      onClick && onClick();
-    },
-  };
-}
-
 /* --------------------------- notifications ----------------------- */
 function ensureNotifyPermission() {
   if (!("Notification" in window)) return Promise.resolve("unsupported");
@@ -180,6 +162,13 @@ const Sun = () => (
     {[[12, 2, 12, 4], [12, 20, 12, 22], [2, 12, 4, 12], [20, 12, 22, 12], [4.9, 4.9, 6.3, 6.3], [17.7, 17.7, 19.1, 19.1], [4.9, 19.1, 6.3, 17.7], [17.7, 6.3, 19.1, 4.9]].map((l, i) => (
       <line key={i} x1={l[0]} y1={l[1]} x2={l[2]} y2={l[3]} />
     ))}
+  </svg>
+);
+const Dots = () => (
+  <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor">
+    <circle cx="12" cy="5" r="1.7" />
+    <circle cx="12" cy="12" r="1.7" />
+    <circle cx="12" cy="19" r="1.7" />
   </svg>
 );
 const Close = () => (
@@ -211,6 +200,8 @@ export default function App() {
   const [ctxMode, setCtxMode] = useState("ai");
   const [aiAbout, setAiAbout] = useState("");
   const [generating, setGenerating] = useState(false);
+  const [promptCopied, setPromptCopied] = useState(false);
+  const [pasteText, setPasteText] = useState("");
   const [manual, setManual] = useState({ name: "", role: "", focus: "" });
   const [newId, setNewId] = useState(null);
   const [editingId, setEditingId] = useState(null);
@@ -317,6 +308,17 @@ export default function App() {
       setGenerating(false);
     }
   };
+  const copyPrompt = () => {
+    try { navigator.clipboard && navigator.clipboard.writeText(PROMPT); } catch (e) {}
+    setPromptCopied(true);
+    setTimeout(() => setPromptCopied(false), 2000);
+  };
+  const savePasted = () => {
+    const text = pasteText.trim();
+    if (!text) return;
+    setState((s) => ({ ...s, savedContext: { text, source: "AI summary", cats: detectCatsLocal(text) } }));
+    setPasteText("");
+  };
   const saveManual = () => {
     const { name, role, focus } = manual;
     if (!role.trim() && !focus.trim() && !name.trim()) return;
@@ -395,6 +397,7 @@ export default function App() {
             c={c} dark={dark} setDark={setDark} ctxMode={ctxMode} setCtxMode={setCtxMode} savedContext={savedContext}
             clearContext={clearContext} aiAbout={aiAbout} setAiAbout={setAiAbout} generating={generating}
             generateProfile={generateProfile} manual={manual} setManual={setManual} saveManual={saveManual}
+            promptCopied={promptCopied} copyPrompt={copyPrompt} pasteText={pasteText} setPasteText={setPasteText} savePasted={savePasted}
             notify={notify} toggleNotify={toggleNotify}
           />
         )}
@@ -596,42 +599,89 @@ function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setF
   );
 }
 
-function Tab({ c, k, active, onSelect, onRename }) {
-  const hold = useHold({ onClick: onSelect, onHold: k === "all" ? undefined : onRename });
+// Reusable ⋯ dropdown. `align` controls which side it opens toward.
+function Menu({ c, items, align = "right", trigger, btnStyle }) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef();
+  useEffect(() => {
+    if (!open) return;
+    const h = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+    document.addEventListener("pointerdown", h);
+    return () => document.removeEventListener("pointerdown", h);
+  }, [open]);
   return (
-    <button
-      {...hold}
-      title={k === "all" ? "" : "Press and hold to rename"}
-      style={{
-        flexShrink: 0, cursor: "pointer", background: "none", border: "none", fontFamily: "inherit",
-        fontSize: 12.5, padding: "0 0 9px", whiteSpace: "nowrap", transition: "all .15s", touchAction: "manipulation",
-        color: active ? c.text : c.sub, fontWeight: active ? 600 : 450,
-        borderBottom: "1.5px solid " + (active ? c.accent : "transparent"),
-      }}
-    >
-      {k === "all" ? "All" : k}
-    </button>
+    <span ref={ref} style={{ position: "relative", display: "inline-flex" }}>
+      <button
+        onClick={(e) => { e.stopPropagation(); setOpen((o) => !o); }}
+        style={btnStyle || { background: "none", border: "none", cursor: "pointer", color: c.sub, display: "flex", alignItems: "center", padding: 2 }}
+        aria-label="More options"
+      >
+        {trigger || <Dots />}
+      </button>
+      {open && (
+        <div
+          style={{
+            position: "absolute", top: "100%", [align]: 0, marginTop: 4, zIndex: 30, minWidth: 130,
+            background: c.bg, border: "1px solid " + c.frame, borderRadius: 12, padding: 5,
+            boxShadow: "0 8px 24px rgba(0,0,0,0.25)", animation: "tmIn .12s ease both",
+          }}
+        >
+          {items.map((it) => (
+            <button
+              key={it.label}
+              onClick={(e) => { e.stopPropagation(); setOpen(false); it.onClick(); }}
+              style={{
+                display: "block", width: "100%", textAlign: "left", background: "none", border: "none",
+                cursor: "pointer", fontFamily: "inherit", fontSize: 13, fontWeight: 500, padding: "9px 11px",
+                borderRadius: 8, color: it.danger ? c.accent : c.text,
+              }}
+            >
+              {it.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
+  );
+}
+
+function Tab({ c, k, active, onSelect, onRename }) {
+  const isAll = k === "all";
+  return (
+    <span style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 3, paddingBottom: 9, borderBottom: "1.5px solid " + (active ? c.accent : "transparent") }}>
+      <button
+        onClick={onSelect}
+        style={{
+          cursor: "pointer", background: "none", border: "none", fontFamily: "inherit", fontSize: 12.5,
+          padding: 0, whiteSpace: "nowrap", transition: "all .15s",
+          color: active ? c.text : c.sub, fontWeight: active ? 600 : 450,
+        }}
+      >
+        {isAll ? "All" : k}
+      </button>
+      {!isAll && (
+        <Menu
+          c={c} align="left" items={[{ label: "Rename tab", onClick: onRename }]}
+          btnStyle={{ background: "none", border: "none", cursor: "pointer", color: active ? c.sub : c.faint, display: "flex", alignItems: "center", padding: 0, opacity: 0.8 }}
+        />
+      )}
+    </span>
   );
 }
 
 function TaskRow({ t, last, c, newId, toggle, remove, onEdit }) {
   const cColor = t.category ? catColor(t.category, c) : c.sub;
   const priColor = c.pris[t.priority] || c.sub;
-  const hold = useHold({ onHold: t.pending ? undefined : onEdit });
-  const stop = { onPointerDown: (e) => e.stopPropagation() };
   return (
     <div
-      {...hold}
-      title="Press and hold to edit"
       style={{
-        padding: "17px 0", display: "flex", gap: 13, alignItems: "flex-start", touchAction: "manipulation",
-        animation: t.id === newId ? "tmIn .25s ease both" : undefined, cursor: t.pending ? "default" : "pointer",
+        padding: "17px 0", display: "flex", gap: 13, alignItems: "flex-start",
+        animation: t.id === newId ? "tmIn .25s ease both" : undefined,
         borderBottom: last ? "none" : "1px solid " + c.line, opacity: t.done ? 0.5 : 1,
       }}
     >
       <div
-        {...stop}
-        onClick={(e) => { e.stopPropagation(); !t.pending && toggle(t.id); }}
+        onClick={() => !t.pending && toggle(t.id)}
         style={{
           flexShrink: 0, width: 19, height: 19, marginTop: 2, borderRadius: "50%", cursor: t.pending ? "default" : "pointer",
           display: "flex", alignItems: "center", justifyContent: "center", transition: "all .15s",
@@ -666,14 +716,16 @@ function TaskRow({ t, last, c, newId, toggle, remove, onEdit }) {
           </>
         )}
       </div>
-      <button
-        {...stop}
-        onClick={(e) => { e.stopPropagation(); remove(t.id); }}
-        style={{ flexShrink: 0, cursor: "pointer", background: "none", border: "none", color: c.delete, fontSize: 18, lineHeight: 1, padding: "0 2px" }}
-        aria-label="Delete task"
-      >
-        ×
-      </button>
+      <div style={{ flexShrink: 0, marginTop: 1 }}>
+        <Menu
+          c={c}
+          items={[
+            ...(t.pending ? [] : [{ label: "Edit", onClick: onEdit }]),
+            { label: "Delete", onClick: () => remove(t.id), danger: true },
+          ]}
+          btnStyle={{ background: "none", border: "none", cursor: "pointer", color: c.delete, display: "flex", alignItems: "center", padding: 2 }}
+        />
+      </div>
     </div>
   );
 }
@@ -682,7 +734,8 @@ function TaskRow({ t, last, c, newId, toggle, remove, onEdit }) {
 function Settings(props) {
   const {
     c, dark, setDark, ctxMode, setCtxMode, savedContext, clearContext, aiAbout, setAiAbout, generating,
-    generateProfile, manual, setManual, saveManual, notify, toggleNotify,
+    generateProfile, manual, setManual, saveManual, promptCopied, copyPrompt, pasteText, setPasteText, savePasted,
+    notify, toggleNotify,
   } = props;
 
   const segBase = { flex: 1, cursor: "pointer", border: "none", borderRadius: 9, fontFamily: "inherit", fontSize: 12.5, fontWeight: 500, padding: "9px 0", transition: "all .15s" };
@@ -735,6 +788,27 @@ function Settings(props) {
                 <button onClick={generateProfile} disabled={!aiAbout.trim() || generating} style={primaryBtn(!!aiAbout.trim() && !generating)}>
                   {generating ? "Generating…" : "Generate with AI"}
                 </button>
+
+                <div style={{ display: "flex", alignItems: "center", gap: 10, margin: "22px 0 16px", color: c.faint, fontSize: 11.5 }}>
+                  <span style={{ flex: 1, height: 1, background: c.line }} />
+                  or bring your own LLM
+                  <span style={{ flex: 1, height: 1, background: c.line }} />
+                </div>
+
+                <div style={{ fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Copy this prompt</div>
+                <div style={{ fontSize: 12, color: c.sub, marginBottom: 10 }}>Paste it into ChatGPT, Claude, or any LLM you like.</div>
+                <div style={{ background: c.card, border: "1px solid " + c.line, borderRadius: 12, padding: 14, fontSize: 12, lineHeight: 1.5, color: c.sub, whiteSpace: "pre-wrap" }}>{PROMPT}</div>
+                <button
+                  onClick={copyPrompt}
+                  style={{ marginTop: 11, cursor: "pointer", border: "1px solid " + c.line, borderRadius: 10, fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, padding: "9px 15px", transition: "all .15s", background: promptCopied ? c.green : "transparent", color: promptCopied ? "#fff" : c.text }}
+                >
+                  {promptCopied ? "Copied ✓" : "Copy prompt"}
+                </button>
+
+                <div style={{ marginTop: 20, fontSize: 12.5, fontWeight: 600, marginBottom: 6 }}>Paste the summary back</div>
+                <div style={{ fontSize: 12, color: c.sub, marginBottom: 10 }}>Drop the LLM's reply here and TaskMind will learn your context.</div>
+                <textarea rows={4} value={pasteText} onChange={(e) => setPasteText(e.target.value)} placeholder="Paste the profile paragraph…" style={{ ...inputStyle, resize: "vertical", lineHeight: 1.5 }} />
+                <button onClick={savePasted} disabled={!pasteText.trim()} style={primaryBtn(!!pasteText.trim())}>Save context</button>
               </div>
             ) : (
               <div>
