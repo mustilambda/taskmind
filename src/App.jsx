@@ -261,6 +261,8 @@ export default function App() {
   const [renamingCat, setRenamingCat] = useState(null);
   const [summaryLoading, setSummaryLoading] = useState(false);
   const [syncState, setSyncState] = useState("idle"); // idle | syncing | ok | error
+  const [notifPerm, setNotifPerm] = useState(typeof Notification !== "undefined" ? Notification.permission : "unsupported");
+  const [, setTick] = useState(0); // forces a re-render each minute so overdue badges stay current
 
   const { dark, tasks, savedContext, notify } = state;
   const c = useMemo(() => palette(dark), [dark]);
@@ -273,6 +275,20 @@ export default function App() {
   useEffect(() => {
     document.body.style.background = c.outer;
   }, [c]);
+
+  // Re-render every minute so overdue badges appear as soon as a due time passes.
+  useEffect(() => {
+    const i = setInterval(() => setTick((t) => t + 1), 60000);
+    return () => clearInterval(i);
+  }, []);
+
+  const enableNotifs = async () => {
+    const p = await ensureNotifyPermission();
+    setNotifPerm(p);
+    if (p === "granted") {
+      try { new Notification("TaskMind", { body: "Notifications are on ✓ I'll nudge you when a task is due." }); } catch (e) {}
+    }
+  };
 
   // Regenerate the funny+motivational headline after the task list settles.
   // Debounced, and skipped entirely when the cached summary still matches the
@@ -517,7 +533,7 @@ export default function App() {
 
   /* ------------------------- derived --------------------------- */
   const open = tasks.filter((t) => !t.done);
-  const overdue = open.filter((t) => t.overdue);
+  const overdue = open.filter((t) => (t.due ? new Date(t.due).getTime() < Date.now() : t.overdue));
   const high = open.filter((t) => t.priority === "High");
   const doneCount = tasks.filter((t) => t.done).length;
   const isFresh = tasks.length === 0;
@@ -589,7 +605,7 @@ export default function App() {
             clearContext={editContext} aiAbout={aiAbout} setAiAbout={setAiAbout} generating={generating}
             generateProfile={generateProfile} manual={manual} setManual={setManual} saveManual={saveManual}
             promptCopied={promptCopied} copyPrompt={copyPrompt} pasteText={pasteText} setPasteText={setPasteText} savePasted={savePasted}
-            notify={notify} toggleNotify={toggleNotify}
+            notify={notify} toggleNotify={toggleNotify} notifPerm={notifPerm} enableNotifs={enableNotifs}
             syncCode={code} syncState={syncState} lastSyncedAt={state.sync?.lastSyncedAt}
             connectSync={connectSync} disconnectSync={disconnectSync} pullNow={pullNow}
           />
@@ -872,6 +888,9 @@ function Tab({ c, k, active, onSelect, onRename }) {
 function TaskRow({ t, last, c, newId, toggle, remove, onEdit }) {
   const cColor = t.category ? catColor(t.category, c) : c.sub;
   const priColor = c.pris[t.priority] || c.sub;
+  // Compute overdue live from the real due time when present, so it flips on
+  // as soon as the scheduled moment passes (falls back to the stored flag).
+  const isOverdue = !t.done && (t.due ? new Date(t.due).getTime() < Date.now() : !!t.overdue);
   return (
     <div
       style={{
@@ -910,7 +929,12 @@ function TaskRow({ t, last, c, newId, toggle, remove, onEdit }) {
                 </span>
               )}
               {t.priority && <span style={{ fontSize: 11.5, color: priColor }}>{t.priority}</span>}
-              {t.dateLabel && <span style={{ fontSize: 11.5, color: t.overdue ? c.overdue : c.sub }}>{t.dateLabel}</span>}
+              {t.dateLabel && <span style={{ fontSize: 11.5, color: isOverdue ? c.overdue : c.sub }}>{t.dateLabel}</span>}
+              {isOverdue && (
+                <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.03em", color: "#fff", background: c.overdue, padding: "2px 8px", borderRadius: 50, textTransform: "uppercase" }}>
+                  ⚠ Overdue
+                </span>
+              )}
             </div>
             {!t.done && t.reason && <div style={{ marginTop: 6, fontSize: 11.5, color: c.faint, lineHeight: 1.4 }}>{t.reason}</div>}
           </>
@@ -935,7 +959,7 @@ function Settings(props) {
   const {
     c, dark, setDark, ctxMode, setCtxMode, savedContext, clearContext, aiAbout, setAiAbout, generating,
     generateProfile, manual, setManual, saveManual, promptCopied, copyPrompt, pasteText, setPasteText, savePasted,
-    notify, toggleNotify, syncCode, syncState, lastSyncedAt, connectSync, disconnectSync, pullNow,
+    notify, toggleNotify, notifPerm, enableNotifs, syncCode, syncState, lastSyncedAt, connectSync, disconnectSync, pullNow,
   } = props;
 
   const segBase = { flex: 1, cursor: "pointer", border: "none", borderRadius: 9, fontFamily: "inherit", fontSize: 12.5, fontWeight: 500, padding: "9px 0", transition: "all .15s" };
@@ -1030,6 +1054,7 @@ function Settings(props) {
       </Section>
 
       <Section c={c} title="Notifications">
+        <PermBanner c={c} notifPerm={notifPerm} enableNotifs={enableNotifs} />
         {NOTIF_DEFS.map((n, i) => (
           <div key={n.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "15px 0", borderTop: i === 0 ? "none" : "1px solid " + c.line }}>
             <div style={{ paddingRight: 16 }}>
@@ -1044,6 +1069,34 @@ function Settings(props) {
       <Section c={c} title="Sync across devices" sub="Use one private code on your phone and PC to keep tasks in sync. No account — keep the code to yourself.">
         <SyncSection c={c} syncCode={syncCode} syncState={syncState} lastSyncedAt={lastSyncedAt} connectSync={connectSync} disconnectSync={disconnectSync} pullNow={pullNow} />
       </Section>
+    </div>
+  );
+}
+
+function PermBanner({ c, notifPerm, enableNotifs }) {
+  const box = (bg, border) => ({ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12, background: bg, border: "1px solid " + border, borderRadius: 12, padding: "12px 14px", marginBottom: 14 });
+  if (notifPerm === "unsupported")
+    return <div style={{ ...box(c.card, c.line), fontSize: 12, color: c.sub }}>This browser doesn't support notifications.</div>;
+  if (notifPerm === "granted")
+    return <div style={{ ...box(c.card, c.line), fontSize: 12.5, color: c.green, fontWeight: 600 }}>🔔 Notifications enabled</div>;
+  if (notifPerm === "denied")
+    return (
+      <div style={{ ...box(c.card, c.line), fontSize: 12, color: c.sub, lineHeight: 1.5 }}>
+        Notifications are blocked. Turn them on for this site in your browser's site settings, then reload.
+      </div>
+    );
+  // default — not yet asked
+  return (
+    <div style={box(c.accent + "14", c.accent + "40")}>
+      <div style={{ fontSize: 12.5, color: c.text, lineHeight: 1.5 }}>
+        <strong>Turn on notifications</strong> to get nudged when a task is due.
+      </div>
+      <button
+        onClick={enableNotifs}
+        style={{ flexShrink: 0, cursor: "pointer", border: "none", borderRadius: 9, background: c.accent, color: "#fff", fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, padding: "9px 13px" }}
+      >
+        Enable
+      </button>
     </div>
   );
 }
