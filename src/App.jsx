@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import * as chrono from "chrono-node";
 
 /* ---------------------------------------------------------------- *
  * TaskMind — AI personal task organizer
@@ -141,6 +142,33 @@ function toLocalInput(iso) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
+// Parse inline directives the user types in square brackets, e.g.
+//   "Call the client [tomorrow 5pm high priority]"
+// → { title: "Call the client", due: <ISO>, priority: "High", ... }
+// The bracket text is stripped from the title; explicit values win over AI.
+function parseDirectives(raw) {
+  const m = raw.match(/\[([^\]]*)\]/);
+  const title = raw.replace(/\s*\[[^\]]*\]\s*/g, " ").trim() || raw.trim();
+  if (!m) return { title };
+  const inside = m[1];
+  const out = { title };
+
+  const low = inside.toLowerCase();
+  if (/\b(high|urgent|asap|important|critical|blocker)\b/.test(low)) out.priority = "High";
+  else if (/\b(low|whenever|someday|eventually|sometime)\b/.test(low)) out.priority = "Low";
+  else if (/\b(medium|normal|mid)\b/.test(low)) out.priority = "Medium";
+
+  try {
+    const d = chrono.parseDate(inside, new Date(), { forwardDate: true });
+    if (d) {
+      out.due = d.toISOString();
+      out.dateLabel = formatDue(out.due);
+      out.overdue = d.getTime() < Date.now();
+    }
+  } catch (e) {}
+  return out;
+}
+
 /* --------------------------- notifications ----------------------- */
 function ensureNotifyPermission() {
   if (!("Notification" in window)) return Promise.resolve("unsupported");
@@ -280,18 +308,29 @@ export default function App() {
     const text = draft.trim();
     if (!text) return;
     const id = Date.now();
+    // Pull any [bracketed] scheduling/priority directives out of the text first.
+    const dir = parseDirectives(text);
+    const title = dir.title;
+    const overrides = {};
+    if (dir.priority) overrides.priority = dir.priority;
+    if (dir.due) { overrides.due = dir.due; overrides.dateLabel = dir.dateLabel; overrides.overdue = dir.overdue; }
+
     setNewId(id);
-    setState((s) => ({ ...s, tasks: [{ id, title: text, done: false, pending: true }, ...s.tasks] }));
+    setState((s) => ({ ...s, tasks: [{ id, title, done: false, pending: true }, ...s.tasks] }));
     setDraft("");
+    if (dir.due) ensureNotifyPermission();
 
     const existing = [...new Set(tasks.map((t) => t.category).filter(Boolean))];
     let result;
     try {
-      result = await callAI({ action: "classify", text, context: savedContext?.text || "", existingCategories: existing });
+      result = await callAI({ action: "classify", text: title, context: savedContext?.text || "", existingCategories: existing });
     } catch (e) {
-      result = classifyLocal(text);
+      result = classifyLocal(title);
     }
-    setState((s) => ({ ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...result, pending: false } : t)) }));
+    // Explicit bracket directives win over the AI's guesses.
+    const merged = { ...result, ...overrides };
+    if (overrides.due) merged.reason = result.reason || ("Scheduled for " + dir.dateLabel + ".");
+    setState((s) => ({ ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, ...merged, pending: false } : t)) }));
   };
   // Manual edit: lets the user fix the AI's call — category, priority,
   // timing, and description — and saves it straight to localStorage.
@@ -613,7 +652,7 @@ function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setF
 
       <div style={{ marginTop: 22, background: c.card, border: "1px solid " + c.line, borderRadius: 16, padding: 14, display: "flex", gap: 10, alignItems: "flex-end" }}>
         <textarea
-          rows={1} value={draft} placeholder="Add a task — TaskMind will sort it…"
+          rows={1} value={draft} placeholder="Add a task — try “Call Sam [tomorrow 5pm high]”"
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); addTask(); } }}
           style={{ flex: 1, resize: "none", border: "none", outline: "none", background: "transparent", fontFamily: "inherit", fontSize: 14.5, lineHeight: 1.4, color: c.text, maxHeight: 90 }}
