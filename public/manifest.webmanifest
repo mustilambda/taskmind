@@ -1,0 +1,12 @@
+{
+  "name": "TaskMind",
+  "short_name": "TaskMind",
+  "description": "An AI task organizer that sorts what you type and reminds you when it's due.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F2EBDC",
+  "theme_color": "#BE3A2E",
+  "icons": [
+    { "src": "/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }
+  ]
+}

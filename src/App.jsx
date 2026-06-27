@@ -188,6 +188,26 @@ function parseDirectives(raw) {
 }
 
 /* --------------------------- notifications ----------------------- */
+// Show a notification via the service worker (works on mobile Chrome, where the
+// plain `new Notification()` constructor is disallowed), falling back to the
+// constructor on desktop browsers without an active SW.
+async function showNotify(title, body, tag) {
+  if (typeof Notification === "undefined" || Notification.permission !== "granted") return false;
+  try {
+    if ("serviceWorker" in navigator) {
+      const reg = await navigator.serviceWorker.ready;
+      await reg.showNotification(title, { body, tag, icon: "/icon.svg", badge: "/icon.svg" });
+      return true;
+    }
+  } catch (e) {}
+  try {
+    new Notification(title, { body, tag });
+    return true;
+  } catch (e) {
+    return false;
+  }
+}
+
 function ensureNotifyPermission() {
   if (!("Notification" in window)) return Promise.resolve("unsupported");
   if (Notification.permission === "granted") return Promise.resolve("granted");
@@ -286,7 +306,7 @@ export default function App() {
     const p = await ensureNotifyPermission();
     setNotifPerm(p);
     if (p === "granted") {
-      try { new Notification("TaskMind", { body: "Notifications are on ✓ I'll nudge you when a task is due." }); } catch (e) {}
+      await showNotify("TaskMind", "Notifications are on ✓ I'll nudge you when a task is due.", "tm-test");
     }
   };
 
@@ -333,7 +353,7 @@ export default function App() {
         if (at <= now && now - at < 1000 * 60 * 60 * 12) {
           // due within the last 12h and not yet notified → fire once
           notifiedRef.current.add(t.id);
-          try { new Notification("TaskMind", { body: `Due now: ${t.title}`, tag: "tm-" + t.id }); } catch (e) {}
+          showNotify("TaskMind", `Due now: ${t.title}`, "tm-" + t.id);
         }
       });
     };
