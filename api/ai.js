@@ -71,7 +71,8 @@ export default async function handler(req, res) {
 
     if (action === "summary") {
       const list = Array.isArray(body.tasks) ? body.tasks.slice(0, 30) : [];
-      const context = String(body.context || "").slice(0, 600);
+      const profile = String(body.context || "").slice(0, 600);
+      const name = String(body.name || "").slice(0, 40).trim();
       if (!list.length) {
         res.status(400).json({ error: "No tasks" });
         return;
@@ -80,30 +81,37 @@ export default async function handler(req, res) {
       const done = list.filter((t) => t.done);
       const overdue = open.filter((t) => t.overdue);
       const high = open.filter((t) => t.priority === "High");
-      const lines = list
-        .map((t) => `- [${t.done ? "x" : " "}] ${t.title}${t.overdue ? " (OVERDUE)" : ""}${t.priority === "High" ? " (HIGH)" : ""}`)
-        .join("\n");
+      // most urgent open task: overdue first, then High priority, then first open
+      const top = overdue[0] || high[0] || open[0];
+      const topTask = top ? top.title : "";
+
       const out = await groqJSON([
         {
           role: "system",
           content:
-            "You are TaskMind's home-screen voice: a witty, encouraging friend who hypes the user up. " +
-            "Given their task list, write a status that is BOTH genuinely funny AND motivating. " +
-            "Celebrate what's done, playfully roast what's pending or overdue, and end on a push to act. " +
-            "Keep it punchy and human — no corporate tone, no hashtags. At most ONE emoji total, only if it lands. " +
-            'Return ONLY JSON: {"line1": a punchy hook (max ~8 words), "line2": a funny/encouraging nudge (max ~14 words)}.' +
-            (context ? ` About the user: ${context}` : ""),
+            "You are TaskMind's witty AI narrator. Write a single punchy headline (1–2 sentences max) for the user's dashboard based on their current task situation.\n\n" +
+            `User's name: ${name || "(unknown)"}\n` +
+            `User's work context: ${profile || "(none given)"}\n` +
+            `Pending tasks: ${open.length}\n` +
+            `Overdue tasks: ${overdue.length}\n` +
+            `Completed today: ${done.length}\n` +
+            `Most urgent task: ${topTask || "(none)"}\n\n` +
+            "Rules:\n" +
+            "- If total pending tasks > 5: roast them. Be savage but lovable. Reference their actual work context and top task by name.\n" +
+            "- If total pending tasks is 3–5: be motivating with a hint of sarcasm. Acknowledge what's done, nudge what's left.\n" +
+            "- If total pending tasks is 1–2: be light, funny, and encouraging. They're almost there.\n" +
+            "- If total pending tasks is 0: celebrate wildly. Make them feel like a legend.\n" +
+            "- If overdue > 0: always mention the overdue count somewhere, no matter the total. Guilt them gently.\n" +
+            "- If a name is provided, use it at least once.\n" +
+            "- Never be generic. Always reference either the user's work context or their top task by name.\n" +
+            "- No hashtags. At most one emoji, only if it lands.\n" +
+            'Return ONLY JSON: {"line1": a punchy hook (max ~8 words), "line2": the witty nudge (max ~18 words)}.',
         },
-        {
-          role: "user",
-          content:
-            `Done: ${done.length}, Open: ${open.length}, Overdue: ${overdue.length}, High-priority: ${high.length}.\n` +
-            `Tasks:\n${lines}`,
-        },
-      ], 0.85);
+        { role: "user", content: "Write my dashboard headline." },
+      ], 0.9);
       res.status(200).json({
-        line1: String(out.line1 || "").slice(0, 90),
-        line2: String(out.line2 || "").slice(0, 140),
+        line1: String(out.line1 || "").slice(0, 100),
+        line2: String(out.line2 || "").slice(0, 180),
       });
       return;
     }

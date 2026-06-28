@@ -164,26 +164,41 @@ function toLocalInput(iso) {
 //   "Call the client [tomorrow 5pm high priority]"
 // → { title: "Call the client", due: <ISO>, priority: "High", ... }
 // The bracket text is stripped from the title; explicit values win over AI.
+// Pull a date/time and priority out of natural task text — anywhere in the
+// sentence, no brackets required. e.g. "Email Sam tomorrow at 5pm" →
+// { title: "Email Sam", due: <ISO> }. The matched date phrase is stripped
+// from the title; any [bracket] is still tolerated for backward-compat.
 function parseDirectives(raw) {
-  const m = raw.match(/\[([^\]]*)\]/);
-  const title = raw.replace(/\s*\[[^\]]*\]\s*/g, " ").trim() || raw.trim();
-  if (!m) return { title };
-  const inside = m[1];
-  const out = { title };
+  const out = {};
+  let title = raw.trim();
 
-  const low = inside.toLowerCase();
-  if (/\b(high|urgent|asap|important|critical|blocker)\b/.test(low)) out.priority = "High";
-  else if (/\b(low|whenever|someday|eventually|sometime)\b/.test(low)) out.priority = "Low";
-  else if (/\b(medium|normal|mid)\b/.test(low)) out.priority = "Medium";
+  const low = raw.toLowerCase();
+  if (/\b(urgent|asap)\b/.test(low) || /high[-\s]?priority/.test(low)) out.priority = "High";
+  else if (/low[-\s]?priority/.test(low) || /\b(whenever|someday)\b/.test(low)) out.priority = "Low";
 
   try {
-    const d = chrono.parseDate(inside, new Date(), { forwardDate: true });
-    if (d) {
-      out.due = d.toISOString();
-      out.dateLabel = formatDue(out.due);
-      out.overdue = d.getTime() < Date.now();
+    const results = chrono.parse(raw, new Date(), { forwardDate: true });
+    if (results && results.length) {
+      const r = results[0];
+      const d = r.date();
+      if (d) {
+        out.due = d.toISOString();
+        out.dateLabel = formatDue(out.due);
+        out.overdue = d.getTime() < Date.now();
+        // remove the matched date phrase from the title
+        title = (raw.slice(0, r.index) + raw.slice(r.index + r.text.length));
+      }
     }
   } catch (e) {}
+
+  title = title
+    .replace(/\s*\[[^\]]*\]\s*/g, " ") // drop any leftover brackets
+    .replace(/\s{2,}/g, " ")
+    .replace(/[\s,]+$/g, "")
+    .replace(/\b(by|on|at|due|before|around|for)\s*$/i, "") // dangling preposition
+    .replace(/^[\s,-]+/, "")
+    .trim();
+  out.title = title || raw.trim();
   return out;
 }
 
@@ -324,8 +339,8 @@ export default function App() {
     setSummaryLoading(true);
     const h = setTimeout(async () => {
       try {
-        const payload = tasks.map((t) => ({ title: t.title, done: !!t.done, category: t.category, priority: t.priority, overdue: !!t.overdue }));
-        const out = await callAI({ action: "summary", tasks: payload, context: savedContext?.text || "" });
+        const payload = tasks.map((t) => ({ title: t.title, done: !!t.done, category: t.category, priority: t.priority, overdue: !t.done && (t.due ? new Date(t.due).getTime() < Date.now() : !!t.overdue) }));
+        const out = await callAI({ action: "summary", tasks: payload, context: savedContext?.text || "", name: savedContext?.name || "" });
         if (!cancelled && out.line1) setState((s) => ({ ...s, aiSummary: { sig, line1: out.line1, line2: out.line2 } }));
       } catch (e) {
         // keep the deterministic fallback headline
@@ -561,7 +576,7 @@ export default function App() {
     if (role.trim()) parts.push(role.trim());
     let text = parts.join(" — ");
     if (focus.trim()) text += (text ? ". " : "") + "Currently focused on " + focus.trim().replace(/\.$/, "") + ".";
-    setState((s) => ({ ...s, savedContext: { text, source: "Written manually", cats: detectCatsLocal(role + " " + focus) } }));
+    setState((s) => ({ ...s, savedContext: { text, source: "Written manually", cats: detectCatsLocal(role + " " + focus), name: name.trim() } }));
   };
 
   /* ------------------------- derived --------------------------- */
@@ -806,7 +821,7 @@ function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setF
 
       <div style={{ marginTop: 22, background: c.card, border: "1px solid " + c.line, borderRadius: 16, padding: 14, display: "flex", gap: 10, alignItems: "flex-end" }}>
         <textarea
-          rows={1} value={draft} placeholder="Add a task — try “Call Sam [tomorrow 5pm high]”"
+          rows={1} value={draft} placeholder="Add a task — e.g. “Call Sam tomorrow at 5pm”"
           onChange={(e) => setDraft(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); addTask(); } }}
           style={{ flex: 1, resize: "none", border: "none", outline: "none", background: "transparent", fontFamily: "inherit", fontSize: 14.5, lineHeight: 1.4, color: c.text, maxHeight: 90 }}
