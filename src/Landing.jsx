@@ -24,25 +24,27 @@ export default function Landing() {
   return (
     <div className="lp">
       <style>{`
-        .lp { background:${C.bg}; color:${C.text}; min-height:100vh; font-family:'Space Grotesk',-apple-system,sans-serif; line-height:1.6; }
+        .lp { background:${C.bg}; color:${C.text}; min-height:100vh; font-family:'Space Grotesk',-apple-system,sans-serif; line-height:1.6; position:relative; overflow-x:hidden; }
+        .lp::before { content:''; position:absolute; top:-120px; right:-160px; width:520px; height:520px; border-radius:50%; background:radial-gradient(circle, rgba(190,58,46,.10), transparent 68%); pointer-events:none; }
+        .lp::after { content:''; position:absolute; top:240px; left:-180px; width:460px; height:460px; border-radius:50%; background:radial-gradient(circle, rgba(124,91,208,.08), transparent 68%); pointer-events:none; }
         .lp a { color:inherit; text-decoration:none; }
-        .lp-wrap { max-width:1040px; margin:0 auto; padding:0 24px; }
-        .lp-nav { display:flex; align-items:center; justify-content:space-between; padding:22px 24px; max-width:1040px; margin:0 auto; }
+        .lp-wrap { max-width:1080px; margin:0 auto; padding:0 24px; position:relative; z-index:1; }
+        .lp-nav { display:flex; align-items:center; justify-content:space-between; padding:20px 24px; max-width:1080px; margin:0 auto; position:relative; z-index:2; }
         .lp-logo { font-family:'Instrument Serif',Georgia,serif; font-style:italic; font-size:24px; letter-spacing:-0.01em; }
         .lp-btn { display:inline-flex; align-items:center; gap:8px; background:${C.accent}; color:#fff; font-weight:600; font-size:14px; padding:11px 20px; border-radius:50px; transition:transform .15s, box-shadow .15s; box-shadow:0 4px 16px rgba(190,58,46,.25); }
         .lp-btn:hover { transform:translateY(-2px); box-shadow:0 8px 24px rgba(190,58,46,.38); }
         .lp-btn-ghost { background:transparent; color:${C.text}; border:1px solid ${C.line}; box-shadow:none; }
         .lp-btn-ghost:hover { border-color:${C.accent}; color:${C.accent}; box-shadow:none; }
 
-        .lp-hero { text-align:center; padding:56px 0 32px; }
-        .lp-tag { display:inline-flex; align-items:center; gap:8px; background:#F7DEDE; color:${C.accent}; font-size:12.5px; font-weight:600; letter-spacing:.04em; text-transform:uppercase; padding:6px 14px; border-radius:50px; margin-bottom:22px; }
+        .lp-hero { display:grid; grid-template-columns:1.05fr 0.95fr; gap:56px; align-items:center; padding:48px 0 72px; }
+        .lp-tag { display:inline-flex; align-items:center; gap:8px; background:#F7DEDE; color:${C.accent}; font-size:12px; font-weight:600; letter-spacing:.05em; text-transform:uppercase; padding:6px 14px; border-radius:50px; margin-bottom:24px; }
         .lp-dot { width:7px; height:7px; border-radius:50%; background:${C.accent}; }
-        .lp-hero h1 { font-family:'Instrument Serif',Georgia,serif; font-size:clamp(2.6rem,6vw,4.4rem); line-height:1.05; letter-spacing:-0.02em; margin:0 0 18px; }
+        .lp-hero h1 { font-family:'Instrument Serif',Georgia,serif; font-size:clamp(2.5rem,4.6vw,4rem); line-height:1.04; letter-spacing:-0.02em; margin:0 0 20px; }
         .lp-hero h1 em { color:${C.accent}; font-style:italic; }
-        .lp-hero p { font-size:clamp(1rem,2.4vw,1.2rem); color:${C.sub}; max-width:560px; margin:0 auto 30px; }
-        .lp-actions { display:flex; gap:12px; justify-content:center; flex-wrap:wrap; }
+        .lp-hero p { font-size:clamp(1.02rem,1.5vw,1.18rem); color:${C.sub}; max-width:480px; margin:0 0 32px; }
+        .lp-actions { display:flex; gap:12px; flex-wrap:wrap; }
 
-        .lp-mock { margin:48px auto 0; max-width:380px; background:#fff; border:1px solid ${C.line}; border-radius:24px; box-shadow:0 30px 70px rgba(0,0,0,.14); overflow:hidden; text-align:left; }
+        .lp-mock { width:100%; max-width:380px; justify-self:end; background:#fff; border:1px solid ${C.line}; border-radius:24px; box-shadow:0 34px 80px rgba(40,28,18,.18); overflow:hidden; text-align:left; transform:rotate(1.4deg); }
         .lp-mock-head { padding:18px 20px 8px; }
         .lp-mock-h { font-family:'Instrument Serif',serif; font-style:italic; font-size:22px; line-height:1.15; }
         .lp-mock-sub { color:${C.faint}; font-size:12px; margin-top:8px; }
@@ -80,9 +82,17 @@ export default function Landing() {
         .lp-foot { text-align:center; color:${C.faint}; font-size:12.5px; padding:40px 0 50px; }
         .lp-foot a { color:${C.accent}; font-weight:600; }
 
+        @media (max-width:860px) {
+          .lp-hero { grid-template-columns:1fr; gap:40px; text-align:center; padding:32px 0 56px; }
+          .lp-hero p { margin-left:auto; margin-right:auto; }
+          .lp-actions { justify-content:center; }
+          .lp-mock { justify-self:center; transform:none; }
+        }
         @media (max-width:720px) {
-          .lp-steps { grid-template-columns:1fr; }
           .lp-feats { grid-template-columns:1fr; }
+        }
+        @media (max-width:560px) {
+          .lp-steps { grid-template-columns:1fr; }
         }
       `}</style>
 
@@ -91,14 +101,16 @@ export default function Landing() {
         <a className="lp-btn" href="/app">Open app →</a>
       </nav>
 
-      <header className="lp-hero">
-        <div className="lp-wrap">
-          <span className="lp-tag"><span className="lp-dot" /> AI Task Organizer · Free</span>
-          <h1>Your to-do list,<br />but it actually <em>thinks.</em></h1>
-          <p>Type a task the way you'd say it. TaskMind sorts it, schedules it, reminds you — and writes you a witty status of your day.</p>
-          <div className="lp-actions">
-            <a className="lp-btn" href="/app">Get started — it's free</a>
-            <a className="lp-btn lp-btn-ghost" href="#how">See how it works</a>
+      <header>
+        <div className="lp-wrap lp-hero">
+          <div className="lp-hero-text">
+            <span className="lp-tag"><span className="lp-dot" /> AI Task Organizer · Free</span>
+            <h1>Your to-do list,<br />but it actually <em>thinks.</em></h1>
+            <p>Type a task the way you'd say it. TaskMind sorts it, schedules it, reminds you — and writes you a witty status of your day.</p>
+            <div className="lp-actions">
+              <a className="lp-btn" href="/app">Get started — it's free</a>
+              <a className="lp-btn lp-btn-ghost" href="#how">See how it works</a>
+            </div>
           </div>
 
           <div className="lp-mock">
