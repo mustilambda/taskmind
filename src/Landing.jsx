@@ -98,7 +98,10 @@ export default function Landing() {
 
       <nav className="lp-nav">
         <span className="lp-logo">TaskMind</span>
-        <a className="lp-btn" href="/app">Open app →</a>
+        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+          <a href="/contact" style={{ color: C.sub, fontSize: 14, fontWeight: 500 }}>Contact</a>
+          <a className="lp-btn" href="/app">Open app →</a>
+        </div>
       </nav>
 
       <header>
@@ -182,7 +185,7 @@ export default function Landing() {
       </section>
 
       <footer className="lp-foot">
-        TaskMind · made for the way you work · <a href="/app">Launch the app</a>
+        TaskMind · made for the way you work · <a href="/app">Launch the app</a> · <a href="/contact">Contact</a>
       </footer>
     </div>
   );
