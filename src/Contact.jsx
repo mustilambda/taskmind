@@ -73,8 +73,9 @@ export default function Contact() {
         .ct-head h1 em { color:${C.accent}; font-style:italic; }
         .ct-head p { color:${C.sub}; max-width:480px; margin:0 auto; }
 
-        .ct-grid { display:grid; grid-template-columns:0.85fr 1.15fr; gap:30px; padding:44px 0 72px; align-items:start; }
-        .ct-card { background:${C.bg2}; border:1px solid ${C.line}; border-radius:18px; padding:18px 20px; display:flex; align-items:center; gap:14px; transition:transform .2s, border-color .2s; margin-bottom:14px; }
+        .ct-grid { display:grid; grid-template-columns:0.85fr 1.15fr; gap:30px; padding:44px 0 72px; align-items:stretch; }
+        .ct-channels { display:flex; flex-direction:column; gap:16px; height:100%; }
+        .ct-card { flex:1; background:${C.bg2}; border:1px solid ${C.line}; border-radius:18px; padding:18px 20px; display:flex; align-items:center; gap:14px; transition:transform .2s, border-color .2s; }
         .ct-card:hover { transform:translateY(-3px); border-color:${C.accent}; }
         .ct-ic { width:42px; height:42px; flex-shrink:0; border-radius:12px; background:#fff; border:1px solid ${C.line}; display:flex; align-items:center; justify-content:center; font-size:19px; font-weight:700; color:${C.accent}; }
         .ct-card-t { font-size:13px; font-weight:600; }
@@ -96,7 +97,7 @@ export default function Contact() {
         .ct-foot { text-align:center; color:${C.faint}; font-size:12.5px; padding:0 0 50px; }
         .ct-foot a { color:${C.accent}; font-weight:600; }
 
-        @media (max-width:780px) { .ct-grid { grid-template-columns:1fr; } .ct-row { flex-direction:column; } }
+        @media (max-width:780px) { .ct-grid { grid-template-columns:1fr; align-items:start; } .ct-channels { height:auto; } .ct-card { flex:none; } .ct-row { flex-direction:column; } }
       `}</style>
 
       <nav className="ct-nav">
@@ -117,7 +118,7 @@ export default function Contact() {
 
       <div className="ct-wrap">
         <div className="ct-grid">
-          <div>
+          <div className="ct-channels">
             {CHANNELS.map((ch) => (
               <a className="ct-card" href={ch.href} target="_blank" rel="noopener" key={ch.t}>
                 <span className="ct-ic">{ch.i}</span>
