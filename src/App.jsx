@@ -939,6 +939,10 @@ function TaskRow({ t, last, c, newId, toggle, remove, onEdit }) {
   // Compute overdue live from the real due time when present, so it flips on
   // as soon as the scheduled moment passes (falls back to the stored flag).
   const isOverdue = !t.done && (t.due ? new Date(t.due).getTime() < Date.now() : !!t.overdue);
+  // Recompute the date label live from the real timestamp so "Tomorrow" rolls
+  // over to "Today" automatically. Fall back to the stored label only when
+  // there's no concrete due time (e.g. AI hints like "This weekend").
+  const dateText = t.due ? formatDue(t.due) : t.dateLabel;
   return (
     <div
       style={{
@@ -977,7 +981,7 @@ function TaskRow({ t, last, c, newId, toggle, remove, onEdit }) {
                 </span>
               )}
               {t.priority && <span style={{ fontSize: 11.5, color: priColor }}>{t.priority}</span>}
-              {t.dateLabel && <span style={{ fontSize: 11.5, color: isOverdue ? c.overdue : c.sub }}>{t.dateLabel}</span>}
+              {dateText && <span style={{ fontSize: 11.5, color: isOverdue ? c.overdue : c.sub }}>{dateText}</span>}
               {isOverdue && (
                 <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.03em", color: "#fff", background: c.overdue, padding: "2px 8px", borderRadius: 50, textTransform: "uppercase" }}>
                   ⚠ Overdue
