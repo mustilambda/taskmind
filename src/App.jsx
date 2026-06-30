@@ -522,7 +522,48 @@ export default function App() {
     setState((s) => ({ ...s, tasks: s.tasks.map((x) => (x.category === from ? { ...x, category: name } : x)) }));
     setFilter((f) => (f === from ? name : f));
   };
-  const toggle = (id) => setState((s) => ({ ...s, tasks: s.tasks.map((x) => (x.id === id ? { ...x, done: !x.done } : x)) }));
+  const toggle = (id) => setState((s) => {
+    const task = s.tasks.find((x) => x.id === id);
+    if (!task) return s;
+    const nowDone = !task.done;
+
+    // When completing a recurring task, spawn the next occurrence.
+    let extra = [];
+    if (nowDone && task.repeat && task.repeat !== "none" && task.due) {
+      const next = new Date(task.due);
+      if (task.repeat === "daily") next.setDate(next.getDate() + 1);
+      else if (task.repeat === "weekly") next.setDate(next.getDate() + 7);
+      else if (task.repeat === "monthly") next.setMonth(next.getMonth() + 1);
+      // If the computed next date is already past, advance to the same time tomorrow / next week / next month from now.
+      if (next.getTime() < Date.now()) {
+        const now = new Date();
+        if (task.repeat === "daily") { next.setFullYear(now.getFullYear(), now.getMonth(), now.getDate() + 1); }
+        else if (task.repeat === "weekly") { next.setFullYear(now.getFullYear(), now.getMonth(), now.getDate() + 7); }
+        else if (task.repeat === "monthly") { next.setFullYear(now.getFullYear(), now.getMonth() + 1, now.getDate()); }
+      }
+      const due = next.toISOString();
+      extra = [{ ...task, id: Date.now(), done: false, due, dateLabel: formatDue(due), overdue: false }];
+    }
+
+    return { ...s, tasks: [...extra, ...s.tasks.map((x) => (x.id === id ? { ...x, done: nowDone } : x))] };
+  });
+
+  const snoozeTask = (id, amount) => {
+    setState((s) => {
+      const task = s.tasks.find((t) => t.id === id);
+      if (!task) return s;
+      let next;
+      if (amount === "tomorrow") {
+        next = new Date();
+        next.setDate(next.getDate() + 1);
+        next.setHours(9, 0, 0, 0);
+      } else {
+        next = new Date(Date.now() + amount * 60 * 60 * 1000);
+      }
+      const due = next.toISOString();
+      return { ...s, tasks: s.tasks.map((t) => (t.id === id ? { ...t, due, dateLabel: formatDue(due), overdue: false } : t)) };
+    });
+  };
   const remove = (id) => setState((s) => ({ ...s, tasks: s.tasks.filter((x) => x.id !== id) }));
   const setDark = (v) => setState((s) => ({ ...s, dark: v }));
   const toggleNotify = (key) => {
@@ -617,8 +658,14 @@ export default function App() {
 
   // dynamic tabs: only categories that actually exist among the tasks
   const cats = [...new Set(tasks.map((t) => t.category).filter(Boolean))];
-  const filterKeys = cats.length ? ["all", ...cats] : [];
-  const visible = filter === "all" || !filterKeys.includes(filter) ? tasks : tasks.filter((t) => t.category === filter);
+  const filterKeys = ["today", "all", ...cats];
+  const todayStr = new Date().toDateString();
+  const visible =
+    filter === "today"
+      ? tasks.filter((t) => !t.done && t.due && (new Date(t.due).toDateString() === todayStr || new Date(t.due).getTime() < Date.now()))
+      : filter === "all" || !filterKeys.includes(filter)
+      ? tasks
+      : tasks.filter((t) => t.category === filter);
 
   return (
     <div style={{ minHeight: "100vh", background: c.outer, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
@@ -645,7 +692,7 @@ export default function App() {
             c={c} head1={head1} head2={head2} subline={subline} draft={draft} setDraft={setDraft} addTask={addTask}
             filter={filter} setFilter={setFilter} filterKeys={filterKeys} visible={visible} newId={newId}
             toggle={toggle} remove={remove} isFresh={isFresh} summaryLoading={summaryLoading}
-            onEditTask={setEditingId} onRenameCat={setRenamingCat}
+            onEditTask={setEditingId} onRenameCat={setRenamingCat} snoozeTask={snoozeTask}
           />
         ) : (
           <Settings
@@ -709,6 +756,7 @@ function TaskEditor({ c, task, categories, onSave, onClose }) {
   const [priority, setPriority] = useState(task.priority || "Medium");
   const [reason, setReason] = useState(task.reason || "");
   const [due, setDue] = useState(toLocalInput(task.due));
+  const [repeat, setRepeat] = useState(task.repeat || "none");
 
   const input = { width: "100%", border: "1px solid " + c.line, borderRadius: 11, background: c.card, padding: "11px 13px", fontFamily: "inherit", fontSize: 13.5, color: c.text, outline: "none" };
   const seg = { flex: 1, cursor: "pointer", border: "none", borderRadius: 8, fontFamily: "inherit", fontSize: 12.5, fontWeight: 600, padding: "9px 0", transition: "all .15s" };
@@ -720,6 +768,7 @@ function TaskEditor({ c, task, categories, onSave, onClose }) {
       priority,
       reason: reason.trim(),
       due: due ? new Date(due).toISOString() : "",
+      repeat,
     });
   };
 
@@ -755,6 +804,21 @@ function TaskEditor({ c, task, categories, onSave, onClose }) {
         {due && <button onClick={() => setDue("")} style={{ border: "1px solid " + c.line, background: "transparent", color: c.sub, borderRadius: 11, cursor: "pointer", padding: "0 12px", fontFamily: "inherit", fontSize: 12.5 }}>Clear</button>}
       </div>
       <div style={{ fontSize: 11, color: c.faint, marginTop: 6 }}>You'll get a notification at this time (while TaskMind is open).</div>
+
+      <Lbl c={c}>Repeat</Lbl>
+      <div style={{ display: "flex", gap: 6, background: c.seg, borderRadius: 10, padding: 4 }}>
+        {[["none", "None"], ["daily", "Daily"], ["weekly", "Weekly"], ["monthly", "Monthly"]].map(([val, label]) => {
+          const on = repeat === val;
+          return (
+            <button key={val} onClick={() => setRepeat(val)} style={{ ...seg, flex: 1, background: on ? c.segActive : "transparent", color: on ? c.text : c.sub, boxShadow: on ? "0 1px 3px rgba(0,0,0,0.13)" : "none" }}>
+              {label}
+            </button>
+          );
+        })}
+      </div>
+      {repeat !== "none" && !due && (
+        <div style={{ fontSize: 11, color: c.accent, marginTop: 6 }}>Set a due date so the next occurrence can be scheduled.</div>
+      )}
 
       <Lbl c={c}>Note</Lbl>
       <textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} placeholder="Why this matters, context, anything…" style={{ ...input, resize: "vertical", lineHeight: 1.4 }} />
@@ -807,7 +871,7 @@ function IconBtn({ c, onClick, children, active }) {
   );
 }
 
-function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setFilter, filterKeys, visible, newId, toggle, remove, isFresh, summaryLoading, onEditTask, onRenameCat }) {
+function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setFilter, filterKeys, visible, newId, toggle, remove, isFresh, summaryLoading, onEditTask, onRenameCat, snoozeTask }) {
   return (
     <div style={{ padding: "6px 24px 0" }}>
       <div style={{ paddingTop: 14 }}>
@@ -851,7 +915,7 @@ function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setF
           </div>
         ) : (
           visible.map((t, i) => (
-            <TaskRow key={t.id} t={t} last={i === visible.length - 1} c={c} newId={newId} toggle={toggle} remove={remove} onEdit={() => onEditTask(t.id)} />
+            <TaskRow key={t.id} t={t} last={i === visible.length - 1} c={c} newId={newId} toggle={toggle} remove={remove} onEdit={() => onEditTask(t.id)} snoozeTask={snoozeTask} />
           ))
         )}
       </div>
@@ -906,7 +970,8 @@ function Menu({ c, items, align = "right", trigger, btnStyle }) {
 }
 
 function Tab({ c, k, active, onSelect, onRename }) {
-  const isAll = k === "all";
+  const isSpecial = k === "all" || k === "today";
+  const label = k === "all" ? "All" : k === "today" ? "Today" : k;
   return (
     <span style={{ flexShrink: 0, display: "inline-flex", alignItems: "center", gap: 3, paddingBottom: 9, borderBottom: "1.5px solid " + (active ? c.accent : "transparent") }}>
       <button
@@ -917,9 +982,9 @@ function Tab({ c, k, active, onSelect, onRename }) {
           color: active ? c.text : c.sub, fontWeight: active ? 600 : 450,
         }}
       >
-        {isAll ? "All" : k}
+        {label}
       </button>
-      {!isAll && (
+      {!isSpecial && (
         <button
           onClick={(e) => { e.stopPropagation(); onRename(); }}
           title="Rename tab"
@@ -933,7 +998,9 @@ function Tab({ c, k, active, onSelect, onRename }) {
   );
 }
 
-function TaskRow({ t, last, c, newId, toggle, remove, onEdit }) {
+const REPEAT_LABEL = { daily: "↻ Daily", weekly: "↻ Weekly", monthly: "↻ Monthly" };
+
+function TaskRow({ t, last, c, newId, toggle, remove, onEdit, snoozeTask }) {
   const cColor = t.category ? catColor(t.category, c) : c.sub;
   const priColor = c.pris[t.priority] || c.sub;
   // Compute overdue live from the real due time when present, so it flips on
@@ -987,6 +1054,9 @@ function TaskRow({ t, last, c, newId, toggle, remove, onEdit }) {
                   ⚠ Overdue
                 </span>
               )}
+              {t.repeat && t.repeat !== "none" && (
+                <span style={{ fontSize: 10.5, fontWeight: 600, color: c.sub }}>{REPEAT_LABEL[t.repeat]}</span>
+              )}
             </div>
             {!t.done && t.reason && <div style={{ marginTop: 6, fontSize: 11.5, color: c.faint, lineHeight: 1.4 }}>{t.reason}</div>}
           </>
@@ -997,6 +1067,10 @@ function TaskRow({ t, last, c, newId, toggle, remove, onEdit }) {
           c={c}
           items={[
             ...(t.pending ? [] : [{ label: "Edit", onClick: onEdit }]),
+            ...(isOverdue && !t.pending ? [
+              { label: "Snooze 1 hour", onClick: () => snoozeTask(t.id, 1) },
+              { label: "Snooze to tomorrow", onClick: () => snoozeTask(t.id, "tomorrow") },
+            ] : []),
             { label: "Delete", onClick: () => remove(t.id), danger: true },
           ]}
           btnStyle={{ background: "none", border: "none", cursor: "pointer", color: c.delete, display: "flex", alignItems: "center", padding: 2 }}
