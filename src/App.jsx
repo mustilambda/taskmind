@@ -294,7 +294,6 @@ export default function App() {
   const [newId, setNewId] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [renamingCat, setRenamingCat] = useState(null);
-  const [summaryLoading, setSummaryLoading] = useState(false);
   const [syncState, setSyncState] = useState("idle"); // idle | syncing | ok | error
   const [notifPerm, setNotifPerm] = useState(typeof Notification !== "undefined" ? Notification.permission : "unsupported");
   const [, setTick] = useState(0); // forces a re-render each minute so overdue badges stay current
@@ -325,31 +324,6 @@ export default function App() {
     }
   };
 
-  // Regenerate the funny+motivational headline after the task list settles.
-  // Debounced, and skipped entirely when the cached summary still matches the
-  // current tasks (so editing the theme or reopening the app costs nothing).
-  const summaryRef = useRef(state.aiSummary);
-  summaryRef.current = state.aiSummary;
-  useEffect(() => {
-    if (!tasks.length) return; // empty-first: keep the onboarding headline
-    if (tasks.some((t) => t.pending)) return; // wait until classification finishes
-    const sig = summarySig(tasks);
-    if (summaryRef.current && summaryRef.current.sig === sig) return;
-    let cancelled = false;
-    setSummaryLoading(true);
-    const h = setTimeout(async () => {
-      try {
-        const payload = tasks.map((t) => ({ title: t.title, done: !!t.done, category: t.category, priority: t.priority, overdue: !t.done && (t.due ? new Date(t.due).getTime() < Date.now() : !!t.overdue) }));
-        const out = await callAI({ action: "summary", tasks: payload, context: savedContext?.text || "", name: savedContext?.name || "" });
-        if (!cancelled && out.line1) setState((s) => ({ ...s, aiSummary: { sig, line1: out.line1, line2: out.line2 } }));
-      } catch (e) {
-        // keep the deterministic fallback headline
-      } finally {
-        if (!cancelled) setSummaryLoading(false);
-      }
-    }, 1000);
-    return () => { cancelled = true; clearTimeout(h); };
-  }, [tasks, savedContext]);
 
   // Fire a "due now" notification for any task whose time has arrived (while
   // the app is open). A poller — instead of one setTimeout per task — is robust
@@ -632,23 +606,20 @@ export default function App() {
     head1 = "What's on your mind?";
     head2 = "Add a task — I'll sort it for you.";
   } else if (open.length === 0) {
-    head1 = "You're all caught up.";
-    head2 = "Enjoy the quiet.";
-  } else if (overdue.length > 0) {
-    head1 = numWord(overdue.length) + (overdue.length > 1 ? " things are overdue." : " thing is overdue.");
-    head2 = "Start with " + shorten(overdue[0].title) + ".";
-  } else if (high.length > 0) {
-    head1 = numWord(high.length) + (high.length > 1 ? " high-priority tasks today." : " high-priority task today.");
-    head2 = "The rest can wait.";
+    head1 = "All " + tasks.length + " tasks complete.";
+    head2 = doneCount + " done today — nothing left.";
   } else {
-    head1 = numWord(open.length) + (open.length > 1 ? " tasks on your plate." : " task on your plate.");
-    head2 = "Nothing urgent — pick one.";
-  }
-
-  // Prefer the AI's funny+motivational summary when it matches the current tasks.
-  if (!isFresh && state.aiSummary && state.aiSummary.sig === summarySig(tasks)) {
-    head1 = state.aiSummary.line1;
-    head2 = state.aiSummary.line2;
+    const parts = [];
+    if (overdue.length) parts.push(overdue.length + " overdue");
+    if (high.length) parts.push(high.length + " high priority");
+    const rest = open.length - overdue.length - high.filter(t => !overdue.includes(t)).length;
+    if (rest > 0) parts.push(rest + " other");
+    head1 = open.length + " open task" + (open.length !== 1 ? "s" : "") + (doneCount ? " · " + doneCount + " done" : "") + ".";
+    head2 = overdue.length
+      ? overdue.length + " overdue · next up: " + shorten(overdue[0].title) + "."
+      : high.length
+      ? high.length + " high priority · next up: " + shorten(high[0].title) + "."
+      : "Next up: " + shorten(open[0].title) + ".";
   }
 
   const subline = isFresh
@@ -691,7 +662,7 @@ export default function App() {
           <Home
             c={c} head1={head1} head2={head2} subline={subline} draft={draft} setDraft={setDraft} addTask={addTask}
             filter={filter} setFilter={setFilter} filterKeys={filterKeys} visible={visible} newId={newId}
-            toggle={toggle} remove={remove} isFresh={isFresh} summaryLoading={summaryLoading}
+            toggle={toggle} remove={remove} isFresh={isFresh}
             onEditTask={setEditingId} onRenameCat={setRenamingCat} snoozeTask={snoozeTask}
           />
         ) : (
@@ -871,15 +842,14 @@ function IconBtn({ c, onClick, children, active }) {
   );
 }
 
-function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setFilter, filterKeys, visible, newId, toggle, remove, isFresh, summaryLoading, onEditTask, onRenameCat, snoozeTask }) {
+function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setFilter, filterKeys, visible, newId, toggle, remove, isFresh, onEditTask, onRenameCat, snoozeTask }) {
   return (
     <div style={{ padding: "6px 24px 0" }}>
       <div style={{ paddingTop: 14 }}>
         <div className="serif" style={{ fontSize: 30, lineHeight: 1.15, letterSpacing: "-0.015em" }}>{head1}</div>
         <div className="serif" style={{ fontSize: 30, lineHeight: 1.15, letterSpacing: "-0.015em", color: c.sub, fontStyle: "italic" }}>{head2}</div>
-        <div style={{ marginTop: 12, fontSize: 12.5, color: c.faint, display: "flex", alignItems: "center", gap: 7 }}>
+        <div style={{ marginTop: 12, fontSize: 12.5, color: c.faint }}>
           {subline}
-          {summaryLoading && <span style={{ opacity: 0.8 }}>✨ rethinking…</span>}
         </div>
       </div>
 
