@@ -19,10 +19,11 @@ const DEFAULT_STATE = {
   notify: { daily: true, overdue: true, priority: false },
   aiSummary: null, // { sig, line1, line2 } — funny+motivational home headline
   sync: { code: "", lastSyncedAt: 0 }, // private cross-device sync
+  corrections: [], // { title, category, priority, at } — user fixes to AI calls, fed back as few-shot examples
 };
 
 // Fields that sync across devices (theme stays per-device on purpose).
-const syncableData = (s) => ({ tasks: s.tasks, savedContext: s.savedContext, notify: s.notify, aiSummary: s.aiSummary });
+const syncableData = (s) => ({ tasks: s.tasks, savedContext: s.savedContext, notify: s.notify, aiSummary: s.aiSummary, corrections: s.corrections });
 
 const SYNC_WORDS_A = ["swift", "calm", "bright", "bold", "quiet", "lucky", "amber", "cobalt", "ember", "misty", "noble", "brisk"];
 const SYNC_WORDS_B = ["otter", "falcon", "cedar", "harbor", "lantern", "pixel", "comet", "willow", "raven", "meadow", "quartz", "delta"];
@@ -298,7 +299,7 @@ export default function App() {
   const [notifPerm, setNotifPerm] = useState(typeof Notification !== "undefined" ? Notification.permission : "unsupported");
   const [, setTick] = useState(0); // forces a re-render each minute so overdue badges stay current
 
-  const { dark, tasks, savedContext, notify } = state;
+  const { dark, tasks, savedContext, notify, corrections } = state;
   const c = useMemo(() => palette(dark), [dark]);
 
   useEffect(() => {
@@ -462,9 +463,12 @@ export default function App() {
     if (dir.due) ensureNotifyPermission();
 
     const existing = [...new Set(tasks.map((t) => t.category).filter(Boolean))];
+    // Feed the AI's own recent corrections back as few-shot examples so it
+    // stops repeating fixes the user already made once.
+    const recentCorrections = corrections.slice(-12).map((c2) => ({ title: c2.title, category: c2.category, priority: c2.priority }));
     let result;
     try {
-      result = await callAI({ action: "classify", text: title, context: savedContext?.text || "", existingCategories: existing });
+      result = await callAI({ action: "classify", text: title, context: savedContext?.text || "", existingCategories: existing, corrections: recentCorrections });
     } catch (e) {
       result = classifyLocal(title);
     }
@@ -486,7 +490,19 @@ export default function App() {
         next.overdue = false;
       }
     }
-    setState((s) => ({ ...s, tasks: s.tasks.map((x) => (x.id === id ? { ...x, ...next } : x)) }));
+    setState((s) => {
+      const task = s.tasks.find((x) => x.id === id);
+      // The user overrode the AI's category/priority call — remember the
+      // corrected pairing so future classify calls learn from it.
+      const corrected = task && (
+        ("category" in next && next.category && next.category !== task.category) ||
+        ("priority" in next && next.priority && next.priority !== task.priority)
+      );
+      const corrections = corrected
+        ? [...s.corrections, { title: task.title, category: next.category || task.category, priority: next.priority || task.priority, at: Date.now() }].slice(-40)
+        : s.corrections;
+      return { ...s, corrections, tasks: s.tasks.map((x) => (x.id === id ? { ...x, ...next } : x)) };
+    });
     if (next.due) ensureNotifyPermission();
   };
   // Rename a category/tab everywhere it appears.
@@ -548,6 +564,7 @@ export default function App() {
     });
   };
   const clearContext = () => setState((s) => ({ ...s, savedContext: null }));
+  const resetLearning = () => setState((s) => ({ ...s, corrections: [] }));
 
   const generateProfile = async () => {
     const about = aiAbout.trim();
@@ -639,14 +656,10 @@ export default function App() {
       : tasks.filter((t) => t.category === filter);
 
   return (
-    <div style={{ minHeight: "100vh", background: c.outer, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
+    <div className="tm-outer" style={{ background: c.outer }}>
       <div
-        className="tmx"
-        style={{
-          width: "100%", maxWidth: 430, height: 820, maxHeight: "94vh", background: c.bg, borderRadius: 30,
-          border: "1px solid " + c.frame, overflowY: "auto", color: c.text, position: "relative",
-          boxShadow: "0 30px 80px rgba(0,0,0,0.25)",
-        }}
+        className="tmx tm-card"
+        style={{ background: c.bg, borderColor: c.frame, color: c.text }}
       >
         <div style={{ position: "sticky", top: 0, zIndex: 5, background: c.bg, padding: "22px 24px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div className="serif" style={{ fontSize: 26, fontStyle: "italic", letterSpacing: "-0.01em" }}>TaskMind</div>
@@ -674,6 +687,7 @@ export default function App() {
             notify={notify} toggleNotify={toggleNotify} notifPerm={notifPerm} enableNotifs={enableNotifs}
             syncCode={code} syncState={syncState} lastSyncedAt={state.sync?.lastSyncedAt}
             connectSync={connectSync} disconnectSync={disconnectSync} pullNow={pullNow}
+            corrections={corrections} resetLearning={resetLearning}
           />
         )}
 
@@ -708,7 +722,8 @@ function Overlay({ c, children, onClose }) {
   return (
     <div
       onClick={onClose}
-      style={{ position: "absolute", inset: 0, zIndex: 20, background: "rgba(0,0,0,0.45)", borderRadius: 30, display: "flex", alignItems: "flex-end" }}
+      className="tm-modal-backdrop"
+      style={{ position: "absolute", inset: 0, zIndex: 20, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "flex-end" }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -1056,6 +1071,7 @@ function Settings(props) {
     c, dark, setDark, ctxMode, setCtxMode, savedContext, clearContext, aiAbout, setAiAbout, generating,
     generateProfile, manual, setManual, saveManual, promptCopied, copyPrompt, pasteText, setPasteText, savePasted,
     notify, toggleNotify, notifPerm, enableNotifs, syncCode, syncState, lastSyncedAt, connectSync, disconnectSync, pullNow,
+    corrections, resetLearning,
   } = props;
 
   const segBase = { flex: 1, cursor: "pointer", border: "none", borderRadius: 9, fontFamily: "inherit", fontSize: 12.5, fontWeight: 500, padding: "9px 0", transition: "all .15s" };
@@ -1140,6 +1156,22 @@ function Settings(props) {
             )}
           </>
         )}
+      </Section>
+
+      <Section c={c} title="Learning" sub={corrections.length ? "TaskMind remembers the sorting you've corrected and reuses those calls on similar tasks." : "Correct a task's category or priority and TaskMind will remember the fix for similar tasks later."}>
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", background: c.card, border: "1px solid " + c.line, borderRadius: 14, padding: 16 }}>
+          <div>
+            <div style={{ fontSize: 13.5, fontWeight: 600 }}>{corrections.length} correction{corrections.length !== 1 ? "s" : ""} learned</div>
+            {corrections.length > 0 && (
+              <div style={{ fontSize: 12, color: c.sub, marginTop: 3 }}>Last: “{shorten(corrections[corrections.length - 1].title)}” → {corrections[corrections.length - 1].category}</div>
+            )}
+          </div>
+          {corrections.length > 0 && (
+            <button onClick={resetLearning} style={{ flexShrink: 0, cursor: "pointer", border: "1px solid " + c.line, borderRadius: 9, background: "transparent", color: c.accent, fontFamily: "inherit", fontSize: 12, fontWeight: 600, padding: "7px 12px" }}>
+              Reset
+            </button>
+          )}
+        </div>
       </Section>
 
       <Section c={c} title="Appearance">

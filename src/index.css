@@ -38,3 +38,43 @@ input::placeholder {
 button {
   font-family: inherit;
 }
+
+.tm-outer {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+.tm-card {
+  width: 100%;
+  max-width: 430px;
+  height: 820px;
+  max-height: 94vh;
+  border-radius: 30px;
+  border-width: 1px;
+  border-style: solid;
+  overflow-y: auto;
+  position: relative;
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
+}
+.tm-modal-backdrop {
+  border-radius: 30px;
+}
+/* Below phone-width, drop the floating-card look for a native, edge-to-edge feel. */
+@media (max-width: 480px) {
+  .tm-outer {
+    padding: 0;
+  }
+  .tm-card {
+    max-width: 100%;
+    height: 100vh;
+    max-height: 100vh;
+    border-radius: 0;
+    border-width: 0;
+    box-shadow: none;
+  }
+  .tm-modal-backdrop {
+    border-radius: 0;
+  }
+}

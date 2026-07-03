@@ -42,6 +42,12 @@ export default async function handler(req, res) {
         res.status(400).json({ error: "Missing text" });
         return;
       }
+      const corrections = Array.isArray(body.corrections) ? body.corrections.slice(0, 12) : [];
+      const correctionsNote = corrections.length
+        ? " The user previously corrected the AI's sorting on these tasks — their final choice is the ground truth. " +
+          "Match similar future tasks the same way (same category/priority) rather than re-guessing: " +
+          corrections.map((c) => `"${String(c.title || "").slice(0, 60)}" → ${c.category || "?"} / ${c.priority || "?"}`).join("; ") + "."
+        : "";
       const out = await groqJSON([
         {
           role: "system",
@@ -55,7 +61,8 @@ export default async function handler(req, res) {
             (context ? ` User context: ${context}` : "") +
             (Array.isArray(body.existingCategories) && body.existingCategories.length
               ? ` Existing categories: ${body.existingCategories.join(", ")}.`
-              : ""),
+              : "") +
+            correctionsNote,
         },
         { role: "user", content: text },
       ]);
