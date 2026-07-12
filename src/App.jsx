@@ -707,6 +707,7 @@ export default function App() {
             filter={filter} setFilter={setFilter} filterKeys={filterKeys} visible={visible} newId={newId}
             toggle={toggle} remove={remove} isFresh={isFresh}
             onEditTask={setEditingId} onRenameCat={setRenamingCat} snoozeTask={snoozeTask}
+            openCount={open.length} doneCount={doneCount} totalCount={tasks.length} overdueCount={overdue.length} highCount={high.length}
           />
         ) : (
           <Settings
@@ -887,46 +888,65 @@ function IconBtn({ c, onClick, children, active }) {
   );
 }
 
-function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setFilter, filterKeys, visible, newId, toggle, remove, isFresh, onEditTask, onRenameCat, snoozeTask }) {
+function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setFilter, filterKeys, visible, newId, toggle, remove, isFresh, onEditTask, onRenameCat, snoozeTask, openCount, doneCount, totalCount, overdueCount, highCount }) {
+  const progress = totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
+  const suggestions = ["Today", "High priority", "Tomorrow 9am"];
   return (
-    <div style={{ padding: "6px 24px 0" }}>
-      <div style={{ paddingTop: 14 }}>
-        <div className="serif" style={{ fontSize: 30, lineHeight: 1.15, letterSpacing: "-0.015em" }}>{head1}</div>
-        <div className="serif" style={{ fontSize: 30, lineHeight: 1.15, letterSpacing: "-0.015em", color: c.sub, fontStyle: "italic" }}>{head2}</div>
-        <div style={{ marginTop: 12, fontSize: 12.5, color: c.faint }}>
-          {subline}
+    <div className="tm-home">
+      <section className="tm-hero" style={{ background: `linear-gradient(145deg, ${c.card}, ${c.bg})`, borderColor: c.line }}>
+        <div className="tm-hero-copy">
+          <div className="tm-eyebrow" style={{ color: c.accent }}>{subline}</div>
+          <div className="serif tm-headline">{head1}</div>
+          <div className="serif tm-headline tm-headline-muted" style={{ color: c.sub }}>{head2}</div>
         </div>
-      </div>
+        <div className="tm-progress-orb" style={{ background: `conic-gradient(${c.accent} ${progress}%, ${c.line} 0)` }} aria-label={`${progress}% complete`}>
+          <div style={{ background: c.bg }}><strong>{progress}%</strong><span>done</span></div>
+        </div>
+        {!isFresh && <div className="tm-stats">
+          <div><strong>{openCount}</strong><span>open</span></div>
+          <div><strong style={{ color: overdueCount ? c.overdue : c.text }}>{overdueCount}</strong><span>overdue</span></div>
+          <div><strong style={{ color: highCount ? c.pris.High : c.text }}>{highCount}</strong><span>high priority</span></div>
+        </div>}
+      </section>
 
-      <div style={{ marginTop: 22, background: c.card, border: "1px solid " + c.line, borderRadius: 16, padding: 14, display: "flex", gap: 10, alignItems: "flex-end" }}>
+      <section className="tm-capture" style={{ background: c.card, borderColor: draft.trim() ? c.accent : c.line }}>
+        <div className="tm-ai-mark" style={{ background: c.accent, color: "#fff" }}>✦</div>
         <textarea
-          rows={1} value={draft} placeholder="Add a task — e.g. “Call Sam tomorrow at 5pm”"
+          rows={1} value={draft} placeholder="Tell TaskMind what needs doing…"
           onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) { e.preventDefault(); addTask(); } }}
-          style={{ flex: 1, resize: "none", border: "none", outline: "none", background: "transparent", fontFamily: "inherit", fontSize: 14.5, lineHeight: 1.4, color: c.text, maxHeight: 90 }}
+          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); addTask(); } }}
+          aria-label="Add a task"
+          style={{ color: c.text }}
         />
         <button
           onClick={addTask}
-          style={{ flexShrink: 0, cursor: draft.trim() ? "pointer" : "default", border: "none", background: "transparent", fontFamily: "inherit", fontSize: 13.5, fontWeight: 600, color: draft.trim() ? c.accent : c.faint, padding: "2px 2px" }}
+          disabled={!draft.trim()}
+          className="tm-organize-btn"
+          style={{ cursor: draft.trim() ? "pointer" : "default", background: draft.trim() ? c.accent : c.line, color: draft.trim() ? "#fff" : c.faint }}
         >
-          Organize →
+          Organize <span>→</span>
         </button>
-      </div>
+        <div className="tm-suggestion-row">
+          <span style={{ color: c.faint }}>Try</span>
+          {suggestions.map((label) => <button key={label} onClick={() => setDraft((v) => `${v}${v ? " " : ""}${label.toLowerCase()}`)} style={{ color: c.sub, borderColor: c.line }}>{label}</button>)}
+        </div>
+      </section>
 
       {filterKeys.length > 0 && (
-        <div className="tmx" style={{ marginTop: 22, display: "flex", gap: 18, overflowX: "auto", borderBottom: "1px solid " + c.line }}>
+        <div className="tmx tm-tabs" style={{ borderColor: c.line }}>
           {filterKeys.map((k) => (
             <Tab key={k} c={c} k={k} active={filter === k} onSelect={() => setFilter(k)} onRename={() => onRenameCat(k)} />
           ))}
         </div>
       )}
 
-      <div style={{ marginTop: 4 }}>
+      <div className="tm-task-list">
         {visible.length === 0 ? (
-          <div style={{ padding: "44px 8px", textAlign: "center", color: c.faint, fontSize: 13.5, lineHeight: 1.6 }}>
-            {isFresh
-              ? "No tasks yet. Type anything above — “email the team”, “fix the signup bug”, “book a dentist” — and TaskMind files it into the right place automatically."
-              : "Nothing here."}
+          <div className="tm-empty" style={{ background: c.card, borderColor: c.line }}>
+            <div className="tm-empty-icon" style={{ color: c.accent, background: `${c.accent}14` }}>✦</div>
+            <div className="serif">{isFresh ? "A clear mind starts here." : "Everything is clear here."}</div>
+            <p style={{ color: c.sub }}>{isFresh ? "Add your first task above. Include a date or priority and I’ll handle the rest." : "No tasks match this view. Enjoy the breathing room."}</p>
+            {isFresh && <button onClick={() => setDraft("Plan my week tomorrow at 9am")} style={{ color: c.accent, borderColor: c.line }}>Use an example</button>}
           </div>
         ) : (
           visible.map((t, i) => (
@@ -1027,17 +1047,20 @@ function TaskRow({ t, last, c, newId, toggle, remove, onEdit, snoozeTask }) {
   const dateText = t.due ? formatDue(t.due) : t.dateLabel;
   return (
     <div
+      className="tm-task"
       style={{
-        padding: "17px 0", display: "flex", gap: 13, alignItems: "flex-start",
+        background: c.card, borderColor: isOverdue ? `${c.overdue}55` : c.line,
+        display: "flex", gap: 13, alignItems: "flex-start",
         animation: t.id === newId ? "tmIn .25s ease both" : undefined,
-        borderBottom: last ? "none" : "1px solid " + c.line, opacity: t.done ? 0.5 : 1,
+        opacity: t.done ? 0.58 : 1,
       }}
     >
-      <div
+      <button
+        className="tm-check"
         onClick={() => !t.pending && toggle(t.id)}
+        aria-label={t.done ? "Mark task incomplete" : "Complete task"}
         style={{
-          flexShrink: 0, width: 19, height: 19, marginTop: 2, borderRadius: "50%", cursor: t.pending ? "default" : "pointer",
-          display: "flex", alignItems: "center", justifyContent: "center", transition: "all .15s",
+          cursor: t.pending ? "default" : "pointer",
           background: t.done ? c.green : "transparent", border: "1.5px solid " + (t.done ? c.green : c.checkBorder),
         }}
       >
@@ -1046,7 +1069,7 @@ function TaskRow({ t, last, c, newId, toggle, remove, onEdit, snoozeTask }) {
             <path d="M20 6L9 17l-5-5" />
           </svg>
         )}
-      </div>
+      </button>
       <div style={{ flex: 1, minWidth: 0 }}>
         <div style={{ fontSize: 15, fontWeight: 450, lineHeight: 1.35, letterSpacing: "-0.005em", color: t.done ? c.faint : c.text, textDecoration: t.done ? "line-through" : "none" }}>
           {t.title}
@@ -1055,15 +1078,15 @@ function TaskRow({ t, last, c, newId, toggle, remove, onEdit, snoozeTask }) {
           <div style={{ marginTop: 7, fontSize: 11.5, color: c.faint, fontStyle: "italic" }}>TaskMind is sorting this…</div>
         ) : (
           <>
-            <div style={{ marginTop: 7, display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+            <div className="tm-task-meta">
               {t.category && (
-                <span style={{ display: "inline-flex", alignItems: "center", gap: 5, fontSize: 11.5, color: cColor }}>
+                <span className="tm-pill" style={{ color: cColor, background: `${cColor}12` }}>
                   <span style={{ width: 6, height: 6, borderRadius: "50%", background: cColor }} />
                   {t.category}
                 </span>
               )}
-              {t.priority && <span style={{ fontSize: 11.5, color: priColor }}>{t.priority}</span>}
-              {dateText && <span style={{ fontSize: 11.5, color: isOverdue ? c.overdue : c.sub }}>{dateText}</span>}
+              {t.priority && <span className="tm-pill" style={{ color: priColor, background: `${priColor}12` }}>{t.priority}</span>}
+              {dateText && <span className="tm-pill" style={{ color: isOverdue ? c.overdue : c.sub, background: isOverdue ? `${c.overdue}12` : "transparent" }}>{dateText}</span>}
               {isOverdue && (
                 <span style={{ fontSize: 10.5, fontWeight: 700, letterSpacing: "0.03em", color: "#fff", background: c.overdue, padding: "2px 8px", borderRadius: 50, textTransform: "uppercase" }}>
                   ⚠ Overdue
