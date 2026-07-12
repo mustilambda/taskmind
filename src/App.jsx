@@ -23,7 +23,21 @@ const DEFAULT_STATE = {
 };
 
 // Fields that sync across devices (theme stays per-device on purpose).
-const syncableData = (s) => ({ tasks: s.tasks, savedContext: s.savedContext, notify: s.notify, aiSummary: s.aiSummary, corrections: s.corrections });
+const syncableData = (s) => ({
+  tasks: Array.isArray(s.tasks) ? s.tasks : [],
+  savedContext: s.savedContext || null,
+  notify: { ...DEFAULT_STATE.notify, ...(s.notify || {}) },
+  aiSummary: s.aiSummary || null,
+  corrections: Array.isArray(s.corrections) ? s.corrections : [],
+});
+
+// Normalize data loaded from another device before merging it into local
+// state. Older blobs predate some fields, and remote data must not be allowed
+// to replace arrays/objects with malformed values.
+function normalizeSyncedData(data) {
+  const safe = data && typeof data === "object" ? data : {};
+  return syncableData({ ...DEFAULT_STATE, ...safe });
+}
 
 const SYNC_WORDS_A = ["swift", "calm", "bright", "bold", "quiet", "lucky", "amber", "cobalt", "ember", "misty", "noble", "brisk"];
 const SYNC_WORDS_B = ["otter", "falcon", "cedar", "harbor", "lantern", "pixel", "comet", "willow", "raven", "meadow", "quartz", "delta"];
@@ -278,7 +292,17 @@ export default function App() {
   const [state, setState] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
-      if (raw) return { ...DEFAULT_STATE, ...JSON.parse(raw) };
+      if (raw) {
+        const saved = JSON.parse(raw);
+        return {
+          ...DEFAULT_STATE,
+          ...(saved && typeof saved === "object" ? saved : {}),
+          tasks: Array.isArray(saved?.tasks) ? saved.tasks : [],
+          notify: { ...DEFAULT_STATE.notify, ...(saved?.notify || {}) },
+          corrections: Array.isArray(saved?.corrections) ? saved.corrections : [],
+          sync: { ...DEFAULT_STATE.sync, ...(saved?.sync || {}) },
+        };
+      }
     } catch (e) {}
     return DEFAULT_STATE;
   });
@@ -386,9 +410,13 @@ export default function App() {
     setSyncState("syncing");
     try {
       const out = await callSync({ action: "pull", code });
-      if (out.blob && out.blob.data && (out.blob.updatedAt || 0) > (state.sync?.lastSyncedAt || 0)) {
-        lastPushedSig.current = JSON.stringify(out.blob.data);
-        setState((s) => ({ ...s, ...out.blob.data, sync: { ...s.sync, lastSyncedAt: out.blob.updatedAt } }));
+      if (out.blob && out.blob.data) {
+        const remote = normalizeSyncedData(out.blob.data);
+        setState((s) => {
+          if ((out.blob.updatedAt || 0) <= (s.sync?.lastSyncedAt || 0)) return s;
+          lastPushedSig.current = JSON.stringify(remote);
+          return { ...s, ...remote, sync: { ...s.sync, lastSyncedAt: out.blob.updatedAt } };
+        });
       }
       setSyncState("ok");
     } catch (e) {
@@ -405,8 +433,9 @@ export default function App() {
     try {
       const out = await callSync({ action: "pull", code: c });
       if (out.blob && out.blob.data) {
-        lastPushedSig.current = JSON.stringify(out.blob.data);
-        setState((s) => ({ ...s, ...out.blob.data, sync: { code: c, lastSyncedAt: out.blob.updatedAt || Date.now() } }));
+        const remote = normalizeSyncedData(out.blob.data);
+        lastPushedSig.current = JSON.stringify(remote);
+        setState((s) => ({ ...s, ...remote, sync: { code: c, lastSyncedAt: out.blob.updatedAt || Date.now() } }));
       } else {
         const data = syncableData(state);
         const push = await callSync({ action: "push", code: c, data });
@@ -443,7 +472,7 @@ export default function App() {
     pushTimer.current = setTimeout(() => pushNow(), 1200);
     return () => clearTimeout(pushTimer.current);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [state.tasks, state.savedContext, state.notify, state.aiSummary, code]);
+  }, [state.tasks, state.savedContext, state.notify, state.aiSummary, state.corrections, code]);
 
   /* ------------------------- mutations ------------------------- */
   const addTask = async () => {
@@ -465,7 +494,7 @@ export default function App() {
     const existing = [...new Set(tasks.map((t) => t.category).filter(Boolean))];
     // Feed the AI's own recent corrections back as few-shot examples so it
     // stops repeating fixes the user already made once.
-    const recentCorrections = corrections.slice(-12).map((c2) => ({ title: c2.title, category: c2.category, priority: c2.priority }));
+    const recentCorrections = (corrections || []).slice(-12).map((c2) => ({ title: c2.title, category: c2.category, priority: c2.priority }));
     let result;
     try {
       result = await callAI({ action: "classify", text: title, context: savedContext?.text || "", existingCategories: existing, corrections: recentCorrections });
@@ -498,9 +527,10 @@ export default function App() {
         ("category" in next && next.category && next.category !== task.category) ||
         ("priority" in next && next.priority && next.priority !== task.priority)
       );
+      const learned = Array.isArray(s.corrections) ? s.corrections : [];
       const corrections = corrected
-        ? [...s.corrections, { title: task.title, category: next.category || task.category, priority: next.priority || task.priority, at: Date.now() }].slice(-40)
-        : s.corrections;
+        ? [...learned, { title: task.title, category: next.category || task.category, priority: next.priority || task.priority, at: Date.now() }].slice(-40)
+        : learned;
       return { ...s, corrections, tasks: s.tasks.map((x) => (x.id === id ? { ...x, ...next } : x)) };
     });
     if (next.due) ensureNotifyPermission();
