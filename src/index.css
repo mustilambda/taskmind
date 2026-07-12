@@ -103,6 +103,7 @@ input:focus-visible {
 .tm-headline-muted {
   margin-top: 3px;
   font-style: italic;
+  overflow-wrap: anywhere;
 }
 .tm-progress-orb {
   width: 86px;

@@ -663,10 +663,10 @@ export default function App() {
     if (rest > 0) parts.push(rest + " other");
     head1 = open.length + " open task" + (open.length !== 1 ? "s" : "") + (doneCount ? " · " + doneCount + " done" : "") + ".";
     head2 = overdue.length
-      ? overdue.length + " overdue · next up: " + shorten(overdue[0].title) + "."
+      ? overdue.length + " overdue · next up: " + overdue[0].title + "."
       : high.length
-      ? high.length + " high priority · next up: " + shorten(high[0].title) + "."
-      : "Next up: " + shorten(open[0].title) + ".";
+      ? high.length + " high priority · next up: " + high[0].title + "."
+      : "Next up: " + open[0].title + ".";
   }
 
   const subline = isFresh
