@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as chrono from "chrono-node";
+import { readTaskImport, uniqueImportedTasks, mergePendingImports } from "./taskImport";
 
 /* ---------------------------------------------------------------- *
  * TaskMind — AI personal task organizer
@@ -15,6 +16,7 @@ const STORAGE_KEY = "taskmind.v2";
 const DEFAULT_STATE = {
   dark: false,
   tasks: [], // empty-first: brand new users see no tasks and no tabs
+  pendingImports: [], // local recovery copy, cleared only after a successful push
   savedContext: null,
   notify: { daily: true, overdue: true, priority: false },
   aiSummary: null, // { sig, line1, line2 } — funny+motivational home headline
@@ -289,6 +291,19 @@ const Gear = () => (
 
 /* --------------------------- the app ----------------------------- */
 export default function App() {
+  const [taskImport, setTaskImport] = useState(() => readTaskImport(window.location.hash));
+  const [importMessage, setImportMessage] = useState("");
+  const closeImport = () => {
+    const params = new URLSearchParams(window.location.hash.slice(1));
+    params.delete("tasks");
+    window.history.replaceState(null, "", window.location.pathname + window.location.search + (params.size ? "#" + params.toString() : ""));
+    setTaskImport(null);
+  };
+  useEffect(() => {
+    const handleLink = () => { setImportMessage(""); setTaskImport(readTaskImport(window.location.hash)); };
+    window.addEventListener("hashchange", handleLink);
+    return () => window.removeEventListener("hashchange", handleLink);
+  }, []);
   const [state, setState] = useState(() => {
     try {
       const raw = localStorage.getItem(STORAGE_KEY);
@@ -298,6 +313,7 @@ export default function App() {
           ...DEFAULT_STATE,
           ...(saved && typeof saved === "object" ? saved : {}),
           tasks: Array.isArray(saved?.tasks) ? saved.tasks : [],
+          pendingImports: Array.isArray(saved?.pendingImports) ? saved.pendingImports : [],
           notify: { ...DEFAULT_STATE.notify, ...(saved?.notify || {}) },
           corrections: Array.isArray(saved?.corrections) ? saved.corrections : [],
           sync: { ...DEFAULT_STATE.sync, ...(saved?.sync || {}) },
@@ -398,7 +414,8 @@ export default function App() {
     try {
       const out = await callSync({ action: "push", code, data });
       lastPushedSig.current = sig;
-      setState((s) => ({ ...s, sync: { ...s.sync, lastSyncedAt: out.updatedAt } }));
+      const pushedIds = new Set(data.tasks.map((task) => task.id));
+      setState((s) => ({ ...s, pendingImports: s.pendingImports.filter((task) => !pushedIds.has(task.id)), sync: { ...s.sync, lastSyncedAt: out.updatedAt } }));
       setSyncState("ok");
     } catch (e) {
       setSyncState("error");
@@ -415,7 +432,7 @@ export default function App() {
         setState((s) => {
           if ((out.blob.updatedAt || 0) <= (s.sync?.lastSyncedAt || 0)) return s;
           lastPushedSig.current = JSON.stringify(remote);
-          return { ...s, ...remote, sync: { ...s.sync, lastSyncedAt: out.blob.updatedAt } };
+          return { ...s, ...remote, tasks: mergePendingImports(remote.tasks, s.pendingImports, s.tasks), sync: { ...s.sync, lastSyncedAt: out.blob.updatedAt } };
         });
       }
       setSyncState("ok");
@@ -435,7 +452,7 @@ export default function App() {
       if (out.blob && out.blob.data) {
         const remote = normalizeSyncedData(out.blob.data);
         lastPushedSig.current = JSON.stringify(remote);
-        setState((s) => ({ ...s, ...remote, sync: { code: c, lastSyncedAt: out.blob.updatedAt || Date.now() } }));
+        setState((s) => ({ ...s, ...remote, tasks: mergePendingImports(remote.tasks, s.pendingImports, s.tasks), sync: { code: c, lastSyncedAt: out.blob.updatedAt || Date.now() } }));
       } else {
         const data = syncableData(state);
         const push = await callSync({ action: "push", code: c, data });
@@ -735,6 +752,35 @@ export default function App() {
             onClose={() => setEditingId(null)}
           />
         )}
+        {taskImport && (
+          <Overlay c={c} onClose={closeImport}>
+            <div role="dialog" aria-modal="true" aria-labelledby="import-title">
+              <h2 id="import-title">Add tasks to TaskMind</h2>
+              {taskImport.error ? <p role="alert">{taskImport.error}</p> : <>
+                <p>Review these tasks before saving. Existing tasks will be kept. Matching titles and times are skipped.</p>
+                {!code && <p>These tasks will be saved on this device and kept when you connect your sync code in Settings.</p>}
+                <ul style={{ maxHeight: "45vh", overflowY: "auto", paddingLeft: 22 }}>
+                  {taskImport.tasks.map((task, i) => <li key={i} style={{ marginBottom: 14 }}>
+                    <strong>{task.title}</strong>
+                    <div>{task.due ? new Date(task.due).toLocaleString(undefined, { dateStyle: "medium", timeStyle: "short" }) : "No date"} · {task.priority} · {task.category}</div>
+                    {task.reason && <div>{task.reason}</div>}
+                  </li>)}
+                </ul>
+                <p>Times are shown in this device’s time zone.</p>
+                <button disabled={syncState === "syncing"} onClick={() => {
+                  setState((s) => {
+                    const added = uniqueImportedTasks(taskImport.tasks, s.tasks).map((t) => ({ ...t, id: crypto.randomUUID(), dateLabel: t.due ? formatDue(t.due) : "No date" }));
+                    return { ...s, tasks: [...added, ...s.tasks], pendingImports: [...s.pendingImports, ...added] };
+                  });
+                  setImportMessage("Tasks added. Any matching tasks were skipped.");
+                  closeImport();
+                }}>Add tasks</button>
+              </>}
+              <button onClick={closeImport} style={{ marginLeft: 12 }}>Cancel</button>
+            </div>
+          </Overlay>
+        )}
+        {importMessage && <p role="status" style={{ textAlign: "center" }}>{importMessage}</p>}
         {renamingCat != null && (
           <CategoryRename
             c={c}
@@ -1339,7 +1385,7 @@ function SyncSection({ c, syncCode, syncState, lastSyncedAt, connectSync, discon
         value={entry} onChange={(e) => setEntry(e.target.value)} placeholder="Enter an existing code…"
         onKeyDown={(e) => { if (e.key === "Enter") connectSync(entry); }} style={input}
       />
-      <div style={{ fontSize: 11, color: c.faint, marginTop: 6 }}>Joining replaces this device's tasks with the synced ones.</div>
+      <div style={{ fontSize: 11, color: c.faint, marginTop: 6 }}>Joining loads your synced tasks and keeps newly imported tasks that have not synced yet.</div>
       <button onClick={() => connectSync(entry)} disabled={!entry.trim()} style={{ ...btn(entry.trim() ? c.accent : c.seg, entry.trim() ? "#fff" : c.faint), width: "100%", marginTop: 10, padding: "11px 0", cursor: entry.trim() ? "pointer" : "default" }}>
         {syncState === "syncing" ? "Connecting…" : "Join sync"}
       </button>

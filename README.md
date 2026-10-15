@@ -49,3 +49,38 @@ Vite app — deploys to Vercel out of the box (build command `npm run build`, ou
 ## Stack
 
 React 18 + Vite.
+
+## Add tasks from a ChatGPT link
+
+Once this version is deployed, any ChatGPT conversation can generate an import
+link. No connector, Custom GPT, or AI API call is needed for importing. Open the
+link in the browser where you already use TaskMind. Review the preview and press
+**Add tasks**. Saving uses the existing local storage and synchronization setup.
+This does not give ChatGPT permission to read tasks or confirm that you saved them.
+
+Copy these instructions into a ChatGPT conversation:
+
+> When I ask to add tasks to TaskMind, give me a clickable Markdown link with
+> this format: https://taskmind-five.vercel.app/#tasks=ENCODED_JSON
+> Replace ENCODED_JSON with a URL-encoded JSON array (encodeURIComponent encoding,
+> not base64). Each object has a required title and optional due, category,
+> priority, and description. Priority is High, Medium, or Low. Due must be an ISO
+> timestamp with an explicit UTC offset; use Asia/Karachi (+05:00) unless I say
+> otherwise. Resolve relative dates against the current date and ask if the date
+> is unclear. Omit due for unscheduled tasks. Keep links short and split large
+> schedules into smaller batches (maximum 50 tasks and 20,000 decoded characters
+> per link). Do not include secrets or my sync code. Label the link "Add to
+> TaskMind" and tell me to review and confirm in the app. Never claim tasks were
+> saved merely because you generated the link.
+
+Example (one unscheduled task):
+
+https://taskmind-five.vercel.app/#tasks=%5B%7B%22title%22%3A%22Take%20a%20walk%22%7D%5D
+
+Matching titles (case and whitespace insensitive) with the same deadline are
+skipped, including completed tasks. Task details remain in browser history and
+in the conversation/link wherever it is shared, so avoid sensitive information.
+The existing snapshot-based sync still has its pre-existing concurrent editing
+limitations; avoid editing on multiple devices simultaneously.
+
+Validation: `node --test src/taskImport.test.js` and `npm run build`.
