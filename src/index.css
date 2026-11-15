@@ -40,9 +40,60 @@ button {
 }
 button:focus-visible,
 textarea:focus-visible,
+select:focus-visible,
 input:focus-visible {
   outline: 2px solid #be3a2e;
   outline-offset: 2px;
+}
+
+.tm-planner { margin-top: 18px; padding: 20px; border: 1px solid; border-radius: 20px; }
+.tm-planner button, .tm-planner select, .tm-planner input { font: inherit; font-size: 12px; border: 1px solid; border-radius: 9px; padding: 9px 10px; min-width: 0; }
+.tm-planner button { cursor: pointer; }
+.tm-planner button:disabled { opacity: .45; cursor: default; }
+.tm-plan-tabs { display: flex; gap: 20px; padding-bottom: 12px; border-bottom: 1px solid; }
+.tm-plan-tabs button { border: 0; background: transparent; padding: 0; font-weight: 600; text-align: left; }
+.tm-plan-tabs button[aria-pressed="true"] { text-decoration: underline; text-underline-offset: 6px; }
+.tm-plan-tabs span { opacity: .65; font-size: 11px; margin-left: 4px; }
+.tm-plan-summary { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; font-size: 11px; margin-top: 12px; }
+.tm-plan-summary button { margin-left: auto; border: 0; background: transparent; padding: 3px 0; font-size: 10px; text-decoration: underline; text-underline-offset: 3px; }
+.tm-plan-summary + .tm-plan-window { margin-top: 12px; }
+.tm-idea-capture { margin-top: 16px; }
+.tm-plan-heading h2 { font-size: 27px; font-weight: 400; letter-spacing: -.02em; margin: 18px 0 5px; }
+.tm-plan-heading p { font-size: 12px; margin: 0 0 18px; line-height: 1.5; }
+.tm-plan-window { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; font-size: 11px; }
+.tm-plan-window label { display: flex; align-items: center; gap: 6px; }
+.tm-plan-window input { width: 112px; }
+.tm-plan-window > span { font-size: 10px; }
+.tm-capacity { display: flex; gap: 8px; justify-content: space-between; flex-wrap: wrap; margin-top: 18px; font-size: 11px; }
+.tm-capacity strong { font-weight: 600; }
+.tm-capacity-track { height: 5px; border-radius: 9px; overflow: hidden; margin-top: 9px; }
+.tm-capacity-track > div { height: 100%; border-radius: inherit; transition: width .2s; }
+.tm-plan-slots { margin: 12px 0; }
+.tm-plan-slot { display: flex; align-items: center; gap: 9px; padding: 12px 0; border-bottom: 1px solid; }
+.tm-plan-slot .tm-plan-check { width: 23px; height: 23px; border-radius: 50%; padding: 0; flex-shrink: 0; }
+.tm-slot-copy { flex: 1; min-width: 0; font-size: 13px; line-height: 1.5; overflow-wrap: anywhere; }
+.tm-slot-copy small { display: block; font-size: 10px; margin-bottom: 3px; }
+.tm-plan-slot select { width: 70px; padding: 7px 3px; flex-shrink: 0; }
+.tm-plan-slot > button:last-child { border: 0; background: transparent; padding: 5px; font-size: 18px; }
+.tm-plan-add { display: grid; grid-template-columns: minmax(0, 1fr) 70px auto; gap: 7px; margin-top: 16px; }
+.tm-plan-add select { width: 100%; }
+.tm-plan-footnote { font-size: 10.5px; line-height: 1.6; margin: 12px 0 0; }
+.tm-plan-empty { font-size: 12px; line-height: 1.6; padding: 14px 0; margin: 0; }
+.tm-idea-capture { display: flex; gap: 7px; }
+.tm-idea-capture input { flex: 1; width: 100%; }
+.tm-idea-filters { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 16px; }
+.tm-idea-filters button { border-radius: 99px; padding: 6px 10px; font-size: 10px; }
+.tm-idea-row { padding: 15px 0; border-bottom: 1px solid; font-size: 13px; line-height: 1.6; overflow-wrap: anywhere; }
+.tm-idea-actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.tm-idea-actions button, .tm-idea-actions select { font-size: 10px; padding: 6px 8px; }
+.tm-completed-toggle { width: 100%; border: 1px solid; border-radius: 12px; background: transparent; padding: 12px; margin-top: 14px; cursor: pointer; font-size: 12px; }
+@media (max-width: 480px) {
+  .tm-planner { padding: 16px; }
+  .tm-plan-heading h2 { font-size: 24px; }
+  .tm-plan-add { grid-template-columns: minmax(0, 1fr) 70px; }
+  .tm-plan-add button { grid-column: 1 / -1; }
+  .tm-idea-capture { flex-wrap: wrap; }
+  .tm-idea-capture input { flex-basis: 100%; }
 }
 
 .tm-outer {

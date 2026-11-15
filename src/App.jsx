@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import * as chrono from "chrono-node";
 import { readTaskImport, uniqueImportedTasks, mergePendingImports } from "./taskImport";
+import EveningPlanner from "./EveningPlanner";
+import { dayKey } from "./eveningPlan";
 
 /* ---------------------------------------------------------------- *
  * TaskMind — AI personal task organizer
@@ -659,18 +661,19 @@ export default function App() {
   };
 
   /* ------------------------- derived --------------------------- */
-  const open = tasks.filter((t) => !t.done);
+  const activeTasks = tasks.filter((t) => !t.ideaStage);
+  const open = activeTasks.filter((t) => !t.done);
   const overdue = open.filter((t) => (t.due ? new Date(t.due).getTime() < Date.now() : t.overdue));
   const high = open.filter((t) => t.priority === "High");
-  const doneCount = tasks.filter((t) => t.done).length;
-  const isFresh = tasks.length === 0;
+  const doneCount = activeTasks.filter((t) => t.done).length;
+  const isFresh = activeTasks.length === 0;
 
   let head1, head2;
   if (isFresh) {
     head1 = "What's on your mind?";
     head2 = "Add a task — I'll sort it for you.";
   } else if (open.length === 0) {
-    head1 = "All " + tasks.length + " tasks complete.";
+    head1 = "All " + activeTasks.length + " tasks complete.";
     head2 = doneCount + " done today — nothing left.";
   } else {
     const parts = [];
@@ -689,18 +692,18 @@ export default function App() {
   const subline = isFresh
     ? new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
     : new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) +
-      " · " + doneCount + " of " + tasks.length + " done";
+      " · " + doneCount + " of " + activeTasks.length + " done";
 
   // dynamic tabs: only categories that actually exist among the tasks
-  const cats = [...new Set(tasks.map((t) => t.category).filter(Boolean))];
+  const cats = [...new Set(activeTasks.map((t) => t.category).filter(Boolean))];
   const filterKeys = ["today", "all", ...cats];
   const todayStr = new Date().toDateString();
   const visible =
     filter === "today"
-      ? tasks.filter((t) => !t.done && t.due && (new Date(t.due).toDateString() === todayStr || new Date(t.due).getTime() < Date.now()))
+      ? activeTasks.filter((t) => !t.done && (t.planDate === dayKey() || (t.due && (new Date(t.due).toDateString() === todayStr || new Date(t.due).getTime() < Date.now()))))
       : filter === "all" || !filterKeys.includes(filter)
-      ? tasks
-      : tasks.filter((t) => t.category === filter);
+      ? activeTasks
+      : activeTasks.filter((t) => t.category === filter);
 
   return (
     <div className="tm-outer" style={{ background: c.outer }}>
@@ -724,7 +727,8 @@ export default function App() {
             filter={filter} setFilter={setFilter} filterKeys={filterKeys} visible={visible} newId={newId}
             toggle={toggle} remove={remove} isFresh={isFresh}
             onEditTask={setEditingId} onRenameCat={setRenamingCat} snoozeTask={snoozeTask}
-            openCount={open.length} doneCount={doneCount} totalCount={tasks.length} overdueCount={overdue.length} highCount={high.length}
+            openCount={open.length} doneCount={doneCount} totalCount={activeTasks.length} overdueCount={overdue.length} highCount={high.length}
+            planner={<EveningPlanner c={c} tasks={tasks} onAdd={(task) => { setState((s) => ({ ...s, tasks: [...s.tasks, task] })); if (!task.ideaStage) setFilter("all"); }} onUpdate={updateTask} onToggle={toggle} />}
           />
         ) : (
           <Settings
@@ -934,7 +938,11 @@ function IconBtn({ c, onClick, children, active }) {
   );
 }
 
-function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setFilter, filterKeys, visible, newId, toggle, remove, isFresh, onEditTask, onRenameCat, snoozeTask, openCount, doneCount, totalCount, overdueCount, highCount }) {
+function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setFilter, filterKeys, visible, newId, toggle, remove, isFresh, onEditTask, onRenameCat, snoozeTask, openCount, doneCount, totalCount, overdueCount, highCount, planner }) {
+  const [showDone, setShowDone] = useState(false);
+  const pending = visible.filter((t) => !t.done);
+  const completed = visible.filter((t) => t.done);
+  const displayed = showDone ? [...pending, ...completed] : pending;
   const progress = totalCount ? Math.round((doneCount / totalCount) * 100) : 0;
   const suggestions = ["Today", "High priority", "Tomorrow 9am"];
   return (
@@ -954,6 +962,8 @@ function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setF
           <div><strong style={{ color: highCount ? c.pris.High : c.text }}>{highCount}</strong><span>high priority</span></div>
         </div>}
       </section>
+
+      {planner}
 
       <section className="tm-capture" style={{ background: c.card, borderColor: draft.trim() ? c.accent : c.line }}>
         <div className="tm-ai-mark" style={{ background: c.accent, color: "#fff" }}>✦</div>
@@ -987,7 +997,7 @@ function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setF
       )}
 
       <div className="tm-task-list">
-        {visible.length === 0 ? (
+        {displayed.length === 0 ? (
           <div className="tm-empty" style={{ background: c.card, borderColor: c.line }}>
             <div className="tm-empty-icon" style={{ color: c.accent, background: `${c.accent}14` }}>✦</div>
             <div className="serif">{isFresh ? "A clear mind starts here." : "Everything is clear here."}</div>
@@ -995,11 +1005,12 @@ function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setF
             {isFresh && <button onClick={() => setDraft("Plan my week tomorrow at 9am")} style={{ color: c.accent, borderColor: c.line }}>Use an example</button>}
           </div>
         ) : (
-          visible.map((t, i) => (
-            <TaskRow key={t.id} t={t} last={i === visible.length - 1} c={c} newId={newId} toggle={toggle} remove={remove} onEdit={() => onEditTask(t.id)} snoozeTask={snoozeTask} />
+          displayed.map((t, i) => (
+            <TaskRow key={t.id} t={t} last={i === displayed.length - 1} c={c} newId={newId} toggle={toggle} remove={remove} onEdit={() => onEditTask(t.id)} snoozeTask={snoozeTask} />
           ))
         )}
       </div>
+      {completed.length > 0 && <button className="tm-completed-toggle" aria-expanded={showDone} onClick={() => setShowDone(!showDone)} style={{ color: c.sub, borderColor: c.line }}>{showDone ? "Hide" : "Show"} completed · {completed.length}</button>}
     </div>
   );
 }
@@ -1125,6 +1136,7 @@ function TaskRow({ t, last, c, newId, toggle, remove, onEdit, snoozeTask }) {
         ) : (
           <>
             <div className="tm-task-meta">
+              {t.planDate === dayKey() && <span className="tm-pill" style={{ color: c.accent, background: `${c.accent}12` }}>Tonight</span>}
               {t.category && (
                 <span className="tm-pill" style={{ color: cColor, background: `${cColor}12` }}>
                   <span style={{ width: 6, height: 6, borderRadius: "50%", background: cColor }} />
