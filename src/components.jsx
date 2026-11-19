@@ -692,6 +692,31 @@ export function BottomBar({ c, active, onToday, onAll, onIdeas, onSettings, onAd
   );
 }
 
+/* Desktop twin of the phone tab bar: lives in the page header (hidden on phones). */
+export function TopNav({ c, active, onToday, onAll, onIdeas }) {
+  const item = (key, label, onClick) => (
+    <button key={key} onClick={onClick} aria-current={active === key ? "page" : undefined}
+      style={{ color: active === key ? c.text : c.sub, background: active === key ? c.segActive : "transparent", borderColor: active === key ? c.line : "transparent" }}>
+      {label}
+    </button>
+  );
+  return (
+    <nav className="tm-topnav" aria-label="Main">
+      {item("today", "Today", onToday)}
+      {item("all", "All tasks", onAll)}
+      {item("ideas", "Ideas", onIdeas)}
+    </nav>
+  );
+}
+
+export function AddTaskButton({ c, onClick }) {
+  return (
+    <button className="tm-topadd" onClick={onClick} style={{ background: c.accent }}>
+      <PlusIcon /> Add task
+    </button>
+  );
+}
+
 /* ------------------------ command palette ------------------------- */
 export function CommandPalette({ c, onClose, tasks, commands, onAddTask, onOpenTask }) {
   const [q, setQ] = useState("");

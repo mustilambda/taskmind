@@ -16,7 +16,7 @@ import { mergeTasks, mergeDeleted, touch } from "./taskMerge";
 
 import { STORAGE_KEY, DEFAULT_STATE, syncableData, normalizeSyncedData, callSync, PROMPT, palette, classifyLocal, detectCatsLocal, callAI, formatDue, parseDirectives, showNotify, ensureNotifyPermission } from "./helpers";
 import { Moon, Sun, Close, Gear, Search } from "./icons";
-import { Overlay, TaskEditor, CategoryRename, IconBtn, Home, Settings, BottomBar, CommandPalette } from "./components";
+import { Overlay, TaskEditor, CategoryRename, IconBtn, Home, Settings, BottomBar, TopNav, AddTaskButton, CommandPalette } from "./components";
 
 /* --------------------------- the app ----------------------------- */
 export default function App() {
@@ -479,6 +479,8 @@ export default function App() {
     }, 60);
   };
 
+  const activeNav = page === "settings" ? "settings" : focus ? "" : filter === "today" ? "today" : filter === "all" ? "all" : "";
+
   /* ------------------------- derived --------------------------- */
   const now = new Date();
   const sum = summarizeTasks(tasks, now);
@@ -521,7 +523,9 @@ export default function App() {
       >
         <div style={{ position: "sticky", top: 0, zIndex: 5, background: c.bg, padding: "22px 24px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div className="serif" style={{ fontSize: 26, fontStyle: "italic", letterSpacing: "-0.01em" }}>TaskMind</div>
-          <div style={{ display: "flex", gap: 8 }}>
+          <TopNav c={c} active={activeNav} onToday={goToday} onAll={goAll} onIdeas={goIdeas} />
+          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+            <AddTaskButton c={c} onClick={focusAdd} />
             <IconBtn c={c} onClick={() => setPaletteOpen(true)} label="Search and commands (Ctrl+K)"><Search /></IconBtn>
             <IconBtn c={c} onClick={() => setDark(!dark)} label={dark ? "Switch to light mode" : "Switch to dark mode"}>{dark ? <Sun /> : <Moon />}</IconBtn>
             <IconBtn c={c} onClick={() => setPage(page === "home" ? "settings" : "home")} active={page === "settings"} label={page === "settings" ? "Close settings" : "Open settings"}>
@@ -606,7 +610,7 @@ export default function App() {
       </div>
       <BottomBar
         c={c}
-        active={page === "settings" ? "settings" : focus ? "" : filter === "today" ? "today" : filter === "all" ? "all" : ""}
+        active={activeNav}
         onToday={goToday} onAll={goAll} onIdeas={goIdeas} onSettings={goSettings} onAdd={focusAdd}
       />
       {paletteOpen && (
