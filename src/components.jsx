@@ -1,7 +1,7 @@
 import { dayKey } from "./eveningPlan";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { makeSyncCode, PROMPT, NOTIF_DEFS, catColor, formatDue, toLocalInput, shorten } from "./helpers";
-import { Dots, Close } from "./icons";
+import { Dots, Close, PlusIcon, TodayIcon, ListIcon, BulbIcon, Gear } from "./icons";
 import PushNotifications from "./PushNotifications";
 
 /* ----------------------------- modals ---------------------------- */
@@ -129,10 +129,12 @@ export function Lbl({ c, children }) {
 }
 
 /* ----------------------- small components ------------------------ */
-export function IconBtn({ c, onClick, children, active }) {
+export function IconBtn({ c, onClick, children, active, label }) {
   return (
     <button
       onClick={onClick}
+      aria-label={label}
+      title={label}
       style={{
         width: 36, height: 36, borderRadius: 11, cursor: "pointer", display: "flex", alignItems: "center",
         justifyContent: "center", color: active ? c.text : c.sub,
@@ -666,5 +668,89 @@ export function Toggle({ c, on, onClick }) {
     >
       <span style={{ position: "absolute", top: 3, left: on ? 21 : 3, width: 20, height: 20, borderRadius: "50%", background: "#fff", transition: "all .2s", boxShadow: "0 1px 3px rgba(0,0,0,0.3)" }} />
     </button>
+  );
+}
+
+/* ------------------------ phone navigation ------------------------ */
+export function BottomBar({ c, active, onToday, onAll, onIdeas, onSettings, onAdd }) {
+  const item = (key, label, icon, onClick) => (
+    <button key={key} onClick={onClick} aria-current={active === key ? "page" : undefined} style={{ color: active === key ? c.accent : c.sub }}>
+      <span className="tm-nav-icon">{icon}</span>
+      <span>{label}</span>
+    </button>
+  );
+  return (
+    <>
+      <button className="tm-fab" onClick={onAdd} aria-label="Add task" style={{ background: c.accent }}><PlusIcon /></button>
+      <nav className="tm-bottombar" aria-label="Main" style={{ background: c.card, borderColor: c.line }}>
+        {item("today", "Today", <TodayIcon />, onToday)}
+        {item("all", "All", <ListIcon />, onAll)}
+        {item("ideas", "Ideas", <BulbIcon />, onIdeas)}
+        {item("settings", "Settings", <Gear />, onSettings)}
+      </nav>
+    </>
+  );
+}
+
+/* ------------------------ command palette ------------------------- */
+export function CommandPalette({ c, onClose, tasks, commands, onAddTask, onOpenTask }) {
+  const [q, setQ] = useState("");
+  const [index, setIndex] = useState(0);
+  const inputRef = useRef();
+  const listRef = useRef();
+  useEffect(() => { inputRef.current && inputRef.current.focus(); }, []);
+
+  const term = q.trim().toLowerCase();
+  const items = useMemo(() => {
+    const out = [];
+    if (term) {
+      tasks.filter((t) => t.title.toLowerCase().includes(term)).slice(0, 5)
+        .forEach((t) => out.push({ key: "t" + t.id, icon: "○", label: t.title, hint: t.due ? formatDue(t.due) : "No date", run: () => onOpenTask(t.id) }));
+    }
+    commands.filter((cmd) => !term || cmd.label.toLowerCase().includes(term))
+      .forEach((cmd) => out.push({ key: cmd.id, icon: cmd.icon, label: cmd.label, hint: cmd.hint, run: cmd.run }));
+    if (term) out.push({ key: "add", icon: "+", label: "Add “" + q.trim() + "” as a new task", hint: "Enter", run: () => onAddTask(q.trim()) });
+    return out;
+  }, [term, tasks, commands]);
+
+  const safeIndex = Math.min(index, Math.max(items.length - 1, 0));
+  useEffect(() => {
+    const el = listRef.current && listRef.current.children[safeIndex];
+    if (el && el.scrollIntoView) el.scrollIntoView({ block: "nearest" });
+  }, [safeIndex]);
+
+  const run = (item) => { if (!item) return; onClose(); item.run(); };
+  const onKeyDown = (e) => {
+    if (e.key === "Escape") { e.preventDefault(); onClose(); }
+    else if (e.key === "ArrowDown") { e.preventDefault(); setIndex(Math.min(safeIndex + 1, items.length - 1)); }
+    else if (e.key === "ArrowUp") { e.preventDefault(); setIndex(Math.max(safeIndex - 1, 0)); }
+    else if (e.key === "Enter") { e.preventDefault(); run(items[safeIndex]); }
+  };
+
+  return (
+    <div className="tm-palette-backdrop" onClick={onClose}>
+      <div className="tmx tm-palette" role="dialog" aria-label="Command palette" onClick={(e) => e.stopPropagation()} style={{ background: c.bg, borderColor: c.frame, color: c.text }}>
+        <input
+          ref={inputRef} value={q} onChange={(e) => { setQ(e.target.value); setIndex(0); }} onKeyDown={onKeyDown}
+          placeholder="Search tasks or type a command…" aria-label="Search tasks or type a command"
+          style={{ color: c.text, borderColor: c.line }}
+        />
+        <div className="tm-palette-list" ref={listRef} role="listbox">
+          {items.length === 0 && <div className="tm-palette-empty" style={{ color: c.sub }}>Nothing matches. Keep typing to add it as a task.</div>}
+          {items.map((it, i) => (
+            <button
+              key={it.key} role="option" aria-selected={i === safeIndex}
+              onMouseMove={() => i !== safeIndex && setIndex(i)} onClick={() => run(it)}
+              style={{ background: i === safeIndex ? c.seg : "transparent", color: c.text }}
+            >
+              <span className="tm-palette-icon" style={{ color: c.sub }}>{it.icon}</span>
+              <span className="tm-palette-label">{it.label}</span>
+              {it.hint && <span className="tm-palette-hint" style={{ color: c.faint }}>{it.hint}</span>}
+            </button>
+          ))}
+        </div>
+        <div className="tm-palette-foot" style={{ color: c.faint, borderColor: c.line }}>↑↓ to move · Enter to choose · Esc to close</div>
+      </div>
+    </div>
   );
 }

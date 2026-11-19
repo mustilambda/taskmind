@@ -15,8 +15,8 @@ import { mergeTasks, mergeDeleted, touch } from "./taskMerge";
  * ---------------------------------------------------------------- */
 
 import { STORAGE_KEY, DEFAULT_STATE, syncableData, normalizeSyncedData, callSync, PROMPT, palette, classifyLocal, detectCatsLocal, callAI, formatDue, parseDirectives, showNotify, ensureNotifyPermission } from "./helpers";
-import { Moon, Sun, Close, Gear } from "./icons";
-import { Overlay, TaskEditor, CategoryRename, IconBtn, Home, Settings } from "./components";
+import { Moon, Sun, Close, Gear, Search } from "./icons";
+import { Overlay, TaskEditor, CategoryRename, IconBtn, Home, Settings, BottomBar, CommandPalette } from "./components";
 
 /* --------------------------- the app ----------------------------- */
 export default function App() {
@@ -63,6 +63,8 @@ export default function App() {
   const [pasteText, setPasteText] = useState("");
   const [manual, setManual] = useState({ name: "", role: "", focus: "" });
   const [newId, setNewId] = useState(null);
+  const [paletteOpen, setPaletteOpen] = useState(false);
+  const [plannerRequest, setPlannerRequest] = useState(null);
   const [focus, setFocus] = useState(null); // { type: "overdue" | "high" | "today" | "day", key? }
   const [toast, setToast] = useState(null); // { label, snapshot } for Undo
   const toastTimer = useRef();
@@ -245,8 +247,8 @@ export default function App() {
   }, [state.tasks, state.deleted, state.savedContext, state.notify, state.aiSummary, state.corrections, code]);
 
   /* ------------------------- mutations ------------------------- */
-  const addTask = async () => {
-    const text = draft.trim();
+  const addTask = async (override) => {
+    const text = (typeof override === "string" ? override : draft).trim();
     if (!text) return;
     const id = Date.now();
     // Pull any [bracketed] scheduling/priority directives out of the text first.
@@ -258,7 +260,7 @@ export default function App() {
 
     setNewId(id);
     setState((s) => ({ ...s, tasks: [{ id, title, done: false, pending: true, updatedAt: Date.now() }, ...s.tasks] }));
-    setDraft("");
+    if (typeof override !== "string") setDraft("");
     if (dir.due) ensureNotifyPermission();
 
     const existing = [...new Set(tasks.map((t) => t.category).filter(Boolean))];
@@ -449,6 +451,34 @@ export default function App() {
     setState((s) => ({ ...s, savedContext: { text, source: "Written manually", cats: detectCatsLocal(role + " " + focus), name: name.trim() } }));
   };
 
+  useEffect(() => {
+    const onKey = (e) => {
+      if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "k") {
+        e.preventDefault();
+        setPaletteOpen((v) => !v);
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
+  const toTop = () => window.scrollTo({ top: 0, behavior: "smooth" });
+  const goToday = () => { setPage("home"); setFocus(null); setFilter("today"); toTop(); };
+  const goAll = () => { setPage("home"); setFocus(null); setFilter("all"); toTop(); };
+  const goIdeas = () => {
+    setPage("home");
+    setPlannerRequest({ view: "ideas", n: Date.now() });
+    setTimeout(() => { const el = document.querySelector(".tm-col-side"); if (el) el.scrollIntoView({ behavior: "smooth", block: "start" }); }, 60);
+  };
+  const goSettings = () => { setPage("settings"); toTop(); };
+  const focusAdd = () => {
+    setPage("home");
+    setTimeout(() => {
+      const ta = document.querySelector(".tm-capture textarea");
+      if (ta) { ta.scrollIntoView({ behavior: "smooth", block: "center" }); ta.focus({ preventScroll: true }); }
+    }, 60);
+  };
+
   /* ------------------------- derived --------------------------- */
   const now = new Date();
   const sum = summarizeTasks(tasks, now);
@@ -492,8 +522,9 @@ export default function App() {
         <div style={{ position: "sticky", top: 0, zIndex: 5, background: c.bg, padding: "22px 24px 12px", display: "flex", alignItems: "center", justifyContent: "space-between" }}>
           <div className="serif" style={{ fontSize: 26, fontStyle: "italic", letterSpacing: "-0.01em" }}>TaskMind</div>
           <div style={{ display: "flex", gap: 8 }}>
-            <IconBtn c={c} onClick={() => setDark(!dark)}>{dark ? <Sun /> : <Moon />}</IconBtn>
-            <IconBtn c={c} onClick={() => setPage(page === "home" ? "settings" : "home")} active={page === "settings"}>
+            <IconBtn c={c} onClick={() => setPaletteOpen(true)} label="Search and commands (Ctrl+K)"><Search /></IconBtn>
+            <IconBtn c={c} onClick={() => setDark(!dark)} label={dark ? "Switch to light mode" : "Switch to dark mode"}>{dark ? <Sun /> : <Moon />}</IconBtn>
+            <IconBtn c={c} onClick={() => setPage(page === "home" ? "settings" : "home")} active={page === "settings"} label={page === "settings" ? "Close settings" : "Open settings"}>
               {page === "settings" ? <Close /> : <Gear />}
             </IconBtn>
           </div>
@@ -506,7 +537,7 @@ export default function App() {
             toggle={toggle} remove={remove} isFresh={isFresh} dueTodayCount={sum.dueToday.length} nextOverdue={nextOverdue} focus={focus} setFocus={setFocus} week={week} rescheduleOverdue={rescheduleOverdue}
             onEditTask={setEditingId} onRenameCat={setRenamingCat} snoozeTask={snoozeTask}
             openCount={open.length} doneCount={doneToday} totalCount={sum.todayTotal} overdueCount={overdue.length} highCount={high.length}
-            planner={<EveningPlanner c={c} tasks={tasks} onAdd={(task) => { setState((s) => ({ ...s, tasks: [...s.tasks, touch(task)] })); if (!task.ideaStage) setFilter("all"); }} onUpdate={updateTask} onToggle={toggle} />}
+            planner={<EveningPlanner c={c} tasks={tasks} request={plannerRequest} onAdd={(task) => { setState((s) => ({ ...s, tasks: [...s.tasks, touch(task)] })); if (!task.ideaStage) setFilter("all"); }} onUpdate={updateTask} onToggle={toggle} />}
           />
         ) : (
           <Settings
@@ -573,6 +604,30 @@ export default function App() {
           />
         )}
       </div>
+      <BottomBar
+        c={c}
+        active={page === "settings" ? "settings" : focus ? "" : filter === "today" ? "today" : filter === "all" ? "all" : ""}
+        onToday={goToday} onAll={goAll} onIdeas={goIdeas} onSettings={goSettings} onAdd={focusAdd}
+      />
+      {paletteOpen && (
+        <CommandPalette
+          c={c}
+          onClose={() => setPaletteOpen(false)}
+          tasks={open}
+          onOpenTask={(id) => { setPage("home"); setEditingId(id); }}
+          onAddTask={(text) => { setPage("home"); setFocus(null); setFilter("all"); addTask(text); }}
+          commands={[
+            ...(overdue.length ? [{ id: "c-resched", icon: "→", label: "Move overdue to today", hint: overdue.length + (overdue.length === 1 ? " task" : " tasks"), run: () => { setPage("home"); rescheduleOverdue(); } }] : []),
+            ...(overdue.length ? [{ id: "c-overdue", icon: "!", label: "Show overdue tasks", run: () => { setPage("home"); setFocus({ type: "overdue" }); toTop(); } }] : []),
+            ...(high.length ? [{ id: "c-high", icon: "↑", label: "Show high priority tasks", run: () => { setPage("home"); setFocus({ type: "high" }); toTop(); } }] : []),
+            { id: "c-today", icon: "◦", label: "Go to Today", run: goToday },
+            { id: "c-all", icon: "◦", label: "Go to all tasks", run: goAll },
+            { id: "c-ideas", icon: "◦", label: "Go to Idea inbox", run: goIdeas },
+            { id: "c-settings", icon: "⚙", label: "Open settings", run: goSettings },
+            { id: "c-dark", icon: "☾", label: dark ? "Switch to light mode" : "Switch to dark mode", run: () => setDark(!dark) },
+          ]}
+        />
+      )}
       {toast && (
         <div className="tm-toast" role="status" style={{ background: c.text, color: c.bg }}>
           <span>{toast.label}</span>

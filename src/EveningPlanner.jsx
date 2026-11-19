@@ -1,11 +1,12 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { dayKey, estimate, eveningPlan } from "./eveningPlan";
 
 const durationLabel = (m) => m >= 60 ? `${Math.floor(m / 60)}h${m % 60 ? ` ${m % 60}m` : ""}` : `${m}m`;
 const clock = (m) => new Date(2000, 0, 1, Math.floor(m / 60), m % 60).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
 
-export default function EveningPlanner({ c, tasks, onAdd, onUpdate, onToggle }) {
+export default function EveningPlanner({ c, tasks, onAdd, onUpdate, onToggle, request }) {
   const [view, setView] = useState("tonight");
+  useEffect(() => { if (request && request.view) setView(request.view); }, [request]);
   const [idea, setIdea] = useState("");
   const [stage, setStage] = useState("inbox");
   const [selected, setSelected] = useState("");
