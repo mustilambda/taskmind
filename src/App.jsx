@@ -680,17 +680,11 @@ export default function App() {
     head1 = "All " + activeTasks.length + " tasks complete.";
     head2 = doneCount + " done today — nothing left.";
   } else {
-    head1 = overdue.length
-      ? overdue.length + " overdue"
-      : high.length
-      ? high.length + " high priority"
-      : open.length + " open task" + (open.length !== 1 ? "s" : "");
-    head2 = "";
+    head1 = open.length + " open task" + (open.length !== 1 ? "s" : "") + ".";
+    head2 = "Next up: " + (overdue[0] || high[0] || open[0]).title + ".";
   }
-  const nextTask = open.length ? (overdue[0] || high[0] || open[0]) : null;
   const todayKey = new Date().toDateString();
   const dueTodayCount = open.filter((t) => !overdue.includes(t) && t.due && new Date(t.due).toDateString() === todayKey).length;
-  const laterCount = open.length - overdue.length - dueTodayCount;
 
   const subline = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
@@ -725,7 +719,7 @@ export default function App() {
           <Home
             c={c} head1={head1} head2={head2} subline={subline} draft={draft} setDraft={setDraft} addTask={addTask}
             filter={filter} setFilter={setFilter} filterKeys={filterKeys} visible={visible} newId={newId}
-            toggle={toggle} remove={remove} isFresh={isFresh} nextTask={nextTask} nextOverdue={!!nextTask && overdue.includes(nextTask)} dueTodayCount={dueTodayCount} laterCount={laterCount}
+            toggle={toggle} remove={remove} isFresh={isFresh} dueTodayCount={dueTodayCount}
             onEditTask={setEditingId} onRenameCat={setRenamingCat} snoozeTask={snoozeTask}
             openCount={open.length} doneCount={doneCount} totalCount={activeTasks.length} overdueCount={overdue.length} highCount={high.length}
             planner={<EveningPlanner c={c} tasks={tasks} onAdd={(task) => { setState((s) => ({ ...s, tasks: [...s.tasks, task] })); if (!task.ideaStage) setFilter("all"); }} onUpdate={updateTask} onToggle={toggle} />}
@@ -939,7 +933,7 @@ function IconBtn({ c, onClick, children, active }) {
   );
 }
 
-function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setFilter, filterKeys, visible, newId, toggle, remove, isFresh, nextTask, nextOverdue, dueTodayCount, laterCount, onEditTask, onRenameCat, snoozeTask, doneCount, totalCount, overdueCount, openCount, planner }) {
+function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setFilter, filterKeys, visible, newId, toggle, remove, isFresh, dueTodayCount, onEditTask, onRenameCat, snoozeTask, doneCount, totalCount, overdueCount, openCount, highCount, planner }) {
   const [showDone, setShowDone] = useState(false);
   const pending = visible.filter((t) => !t.done);
   const completed = visible.filter((t) => t.done);
@@ -949,25 +943,20 @@ function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setF
   return (
     <div className="tm-home">
       <section className="tm-hero" style={{ background: `linear-gradient(145deg, ${c.card}, ${c.bg})`, borderColor: c.line }}>
-        <div className="tm-hero-top">
-          <span className="tm-eyebrow" style={{ color: c.sub }}>{subline}</span>
-          {!isFresh && <span className="tm-hero-count" style={{ color: c.sub }}>{doneCount}/{totalCount} done</span>}
+        <div className="tm-hero-copy">
+          <div className="tm-eyebrow" style={{ color: c.sub }}>{subline}</div>
+          <div className="serif tm-headline">{head1}</div>
+          {head2 && <div className="serif tm-headline tm-headline-muted" style={{ color: c.sub }}>{head2}</div>}
         </div>
-        <div className="serif tm-headline" style={{ color: overdueCount && !isFresh ? c.overdue : c.text }}>{head1}</div>
-        {head2 && <div className="tm-hero-sub" style={{ color: c.sub }}>{head2}</div>}
-        {nextTask && (
-          <div className="tm-next">
-            <span style={{ color: c.sub }}>Start with </span>
-            <strong>{nextTask.title}</strong>
-            {nextTask.due && <span style={{ color: nextOverdue ? c.overdue : c.sub }}> — {nextOverdue ? "was due " : "due "}{formatDue(nextTask.due)}</span>}
-          </div>
-        )}
-        {!isFresh && (dueTodayCount > 0 || laterCount > 0) && (
-          <div className="tm-breakdown" style={{ color: c.sub }}>Then 
-            {[[dueTodayCount, "due today"], [laterCount, "later"]].filter(([n]) => n > 0).map(([n, l]) => n + " " + l).join(" · ")}
-          </div>
-        )}
-        {!isFresh && <div className="tm-hero-bar" style={{ background: c.line }} aria-label={`${progress}% complete`}><div style={{ width: progress + "%", background: c.accent }} /></div>}
+        {!isFresh && <div className="tm-progress-orb" style={{ background: `conic-gradient(${c.accent} ${progress}%, ${c.line} 0)` }} aria-label={`${progress}% complete`}>
+          <div style={{ background: c.bg }}><strong>{doneCount}/{totalCount}</strong><span>done</span></div>
+        </div>}
+        {!isFresh && <div className="tm-stats">
+          <div><strong>{openCount}</strong><span>open</span></div>
+          <div><strong style={{ color: overdueCount ? c.overdue : c.text }}>{overdueCount}</strong><span>overdue</span></div>
+          {dueTodayCount > 0 && <div><strong>{dueTodayCount}</strong><span>due today</span></div>}
+          {highCount > 0 && <div><strong style={{ color: c.pris.High }}>{highCount}</strong><span>high priority</span></div>}
+        </div>}
       </section>
 
       {planner}
