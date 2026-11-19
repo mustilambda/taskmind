@@ -102,3 +102,15 @@ The existing snapshot-based sync still has its pre-existing concurrent editing
 limitations; avoid editing on multiple devices simultaneously.
 
 Validation: `node --test src/taskImport.test.js` and `npm run build`.
+
+### Dashboard, undo and sync merging
+
+The dashboard ring tracks **today**: tasks finished today out of what is still open.
+The stats are tappable filters, "Move overdue to today" reschedules late tasks in one go,
+and the week strip filters by day. Completing or deleting a task offers a 6-second Undo.
+
+Sync now merges per task (`updatedAt` stamps plus deletion tombstones) instead of
+replacing everything, so edits on two devices to *different* tasks are both kept.
+Two devices editing the *same* task at once still resolve to the latest edit.
+
+Checks: `node --test src/*.test.js lib/*.test.js`.
