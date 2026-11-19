@@ -139,26 +139,9 @@ input:focus-visible {
   letter-spacing: -0.02em;
 }
 .tm-hero-sub { margin-top: 2px; font-size: 14px; }
-.tm-next {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 12px;
-  font-size: 14px;
-  min-width: 0;
-}
-.tm-next-check {
-  flex: none;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  border: 1.5px solid;
-  border-radius: 50%;
-  background: transparent;
-  cursor: pointer;
-}
-.tm-next-label { flex: none; font-size: 12px; }
-.tm-next-title { min-width: 0; overflow-wrap: anywhere; font-weight: 500; }
+.tm-next { margin-top: 10px; font-size: 14px; line-height: 1.4; overflow-wrap: anywhere; }
+.tm-next strong { font-weight: 600; }
+.tm-breakdown { margin-top: 8px; font-size: 12.5px; }
 .tm-hero-bar { height: 3px; margin: 16px -22px -20px; }
 .tm-hero-bar > div { height: 100%; transition: width 0.5s ease; }
 .tm-capture {
