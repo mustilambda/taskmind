@@ -96,27 +96,43 @@ input:focus-visible {
   .tm-idea-capture input { flex-basis: 100%; }
 }
 
+/* Page layout: a centered column on the page background, no floating frame. */
 .tm-outer {
   min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: 20px;
 }
 .tm-card {
   width: 100%;
-  max-width: 720px;
-  height: 860px;
-  max-height: 94vh;
-  border-radius: 30px;
-  border-width: 1px;
-  border-style: solid;
-  overflow-y: auto;
+  max-width: 1040px;
+  margin: 0 auto;
+  padding-bottom: 48px;
   position: relative;
-  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.25);
 }
 .tm-home {
   padding: 8px 28px 0;
+}
+.tm-narrow { max-width: 720px; margin: 0 auto; }
+.tm-cols { display: flex; flex-direction: column; }
+.tm-col-side { order: -1; }
+.tm-col-main { min-width: 0; }
+.tm-week { max-width: 620px; }
+@media (min-width: 900px) {
+  .tm-cols {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 360px;
+    gap: 28px;
+    align-items: start;
+  }
+  .tm-col-main { grid-column: 1; grid-row: 1; }
+  .tm-col-side { order: 0; grid-column: 2; grid-row: 1; position: sticky; top: 88px; }
+  .tm-col-side .tm-planner { margin-top: 18px; }
+}
+@media (min-width: 700px) {
+  .tm-modal-backdrop { align-items: center !important; justify-content: center !important; }
+  .tm-modal-backdrop > div {
+    max-width: 520px;
+    border-radius: 22px !important;
+    border-bottom: 1px solid !important;
+  }
 }
 .tm-hero {
   position: relative;
@@ -293,25 +309,8 @@ input:focus-visible {
 .tm-empty .serif { font-size: 24px; }
 .tm-empty p { max-width: 360px; margin: 8px auto 16px; font-size: 12.5px; line-height: 1.55; }
 .tm-empty button { padding: 8px 12px; border: 1px solid; border-radius: 10px; background: transparent; cursor: pointer; font-size: 11.5px; font-weight: 600; }
-.tm-modal-backdrop {
-  border-radius: 30px;
-}
 /* Below phone-width, drop the floating-card look for a native, edge-to-edge feel. */
 @media (max-width: 480px) {
-  .tm-outer {
-    padding: 0;
-  }
-  .tm-card {
-    max-width: 100%;
-    height: 100vh;
-    max-height: 100vh;
-    border-radius: 0;
-    border-width: 0;
-    box-shadow: none;
-  }
-  .tm-modal-backdrop {
-    border-radius: 0;
-  }
   .tm-home { padding: 5px 16px 0; }
   .tm-hero { grid-template-columns: minmax(0, 1fr) 70px; gap: 12px; padding: 20px 18px; border-radius: 20px; }
   .tm-headline { font-size: 27px; }

@@ -10,7 +10,7 @@ export function Overlay({ c, children, onClose }) {
     <div
       onClick={onClose}
       className="tm-modal-backdrop"
-      style={{ position: "absolute", inset: 0, zIndex: 20, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "flex-end" }}
+      style={{ position: "fixed", inset: 0, zIndex: 20, background: "rgba(0,0,0,0.45)", display: "flex", alignItems: "flex-end" }}
     >
       <div
         onClick={(e) => e.stopPropagation()}
@@ -185,7 +185,9 @@ export function Home({ c, head1, head2, subline, draft, setDraft, addTask, filte
         )}
       </section>
 
-      {planner}
+      <div className="tm-cols">
+      <aside className="tm-col-side">{planner}</aside>
+      <div className="tm-col-main">
 
       <section className="tm-capture" style={{ background: c.card, borderColor: draft.trim() ? c.accent : c.line }}>
         <div className="tm-ai-mark" style={{ background: c.accent, color: "#fff" }}>✦</div>
@@ -240,6 +242,8 @@ export function Home({ c, head1, head2, subline, draft, setDraft, addTask, filte
         )}
       </div>
       {completed.length > 0 && <button className="tm-completed-toggle" aria-expanded={showDone} onClick={() => setShowDone(!showDone)} style={{ color: c.sub, borderColor: c.line }}>{showDone ? "Hide" : "Show"} completed · {completed.length}</button>}
+      </div>
+      </div>
     </div>
   );
 }
@@ -421,7 +425,7 @@ export function Settings(props) {
   const primaryBtn = (enabled) => ({ marginTop: 12, width: "100%", cursor: enabled ? "pointer" : "default", border: "none", borderRadius: 11, fontFamily: "inherit", fontSize: 13, fontWeight: 600, padding: "11px 18px", transition: "all .15s", background: enabled ? c.accent : c.seg, color: enabled ? "#fff" : c.faint });
 
   return (
-    <div style={{ padding: "10px 24px 0" }}>
+    <div className="tm-narrow" style={{ padding: "10px 24px 40px" }}>
       <div className="serif" style={{ fontSize: 28, fontStyle: "italic", paddingTop: 8 }}>Settings</div>
 
       <Section c={c} title="About you" sub="Give TaskMind context about your work so it sorts new tasks the way you actually work.">

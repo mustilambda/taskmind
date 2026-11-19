@@ -85,7 +85,7 @@ export default function App() {
     } catch (e) {}
   }, [state]);
   useEffect(() => {
-    document.body.style.background = c.outer;
+    document.body.style.background = c.bg;
   }, [c]);
 
   // Re-render every minute so overdue badges appear as soon as a due time passes.
@@ -484,7 +484,7 @@ export default function App() {
       : activeTasks.filter((t) => t.category === filter);
 
   return (
-    <div className="tm-outer" style={{ background: c.outer }}>
+    <div className="tm-outer" style={{ background: c.bg }}>
       <div
         className="tmx tm-card"
         style={{ background: c.bg, borderColor: c.frame, color: c.text }}
