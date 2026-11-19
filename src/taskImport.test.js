@@ -3,6 +3,28 @@ import assert from "node:assert/strict";
 import { readTaskImport, uniqueImportedTasks, mergePendingImports } from "./taskImport.js";
 
 const link = (tasks) => "#tasks=" + encodeURIComponent(JSON.stringify(tasks));
+test("limits URL-decoded JSON to 20,000 UTF-16 code units", () => {
+  const tasks = [{ title: "Task", description: "" }];
+  const overhead = JSON.stringify(tasks).length;
+  const remaining = 20000 - overhead;
+
+  // Astral Unicode characters occupy two UTF-16 code units each.
+  tasks[0].description =
+    "\u{1F600}".repeat(Math.floor(remaining / 2)) +
+    "x".repeat(remaining % 2);
+
+  const raw = JSON.stringify(tasks);
+  assert.equal(raw.length, 20000);
+  assert.ok(encodeURIComponent(raw).length > 20000);
+  assert.equal(readTaskImport(link(tasks)).tasks.length, 1);
+
+  tasks[0].description += "x";
+  assert.equal(JSON.stringify(tasks).length, 20001);
+  assert.deepEqual(readTaskImport(link(tasks)), {
+    error: "This task link is too large.",
+  });
+});
+
 test("joining sync retains unacknowledged imports and remote tasks without duplicates", () => {
   const pending = [{ id: "import", title: "Walk", due: "" }];
   const remote = [{ id: 1, title: "Work", due: "" }];

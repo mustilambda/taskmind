@@ -4,6 +4,16 @@
 self.addEventListener("install", () => self.skipWaiting());
 self.addEventListener("activate", (e) => e.waitUntil(self.clients.claim()));
 
+self.addEventListener("push", (event) => {
+  let message = {};
+  try { message = event.data?.json() || {}; } catch {}
+  event.waitUntil(self.registration.showNotification(message.title || "TaskMind", {
+    body: message.body || "You have a task to check.",
+    tag: message.tag || "tm-reminder", icon: "/icon.svg", badge: "/icon.svg",
+    data: { url: "/" },
+  }));
+});
+
 self.addEventListener("notificationclick", (e) => {
   e.notification.close();
   e.waitUntil(

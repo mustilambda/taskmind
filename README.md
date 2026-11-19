@@ -30,6 +30,22 @@ Without it, the app still runs on the local keyword fallback.
 
 ## Run locally
 
+### Tonight's plan and Idea inbox
+
+Tonight's plan starts with an editable 8–11 PM window in the device's local time.
+Choose existing tasks and estimate their duration to see the remaining space.
+Adding a task to the plan does not change its deadline. Completed slots keep their
+place in the evening, and unfinished tasks remain in the task list the next day.
+The window is saved on this device; planned dates and estimates use existing task
+storage and sync.
+
+The Idea inbox captures ideas without a deadline. Keep them under Undecided,
+This week, or Later; promote one to Tonight when it fits, or use Make task to move
+it into the normal task list. This week is a shortlist, not an automatic deadline.
+Completed tasks in the normal list are collapsed by default.
+
+Planning checks: `node --test src/eveningPlan.test.js`.
+
 ```bash
 npm install
 npm run dev
@@ -68,8 +84,10 @@ Copy these instructions into a ChatGPT conversation:
 > timestamp with an explicit UTC offset; use Asia/Karachi (+05:00) unless I say
 > otherwise. Resolve relative dates against the current date and ask if the date
 > is unclear. Omit due for unscheduled tasks. Keep links short and split large
-> schedules into smaller batches (maximum 50 tasks and 20,000 decoded characters
-> per link). Do not include secrets or my sync code. Label the link "Add to
+> schedules into smaller batches (maximum 50 tasks per link; the URL-decoded
+> `tasks` JSON text must be at most 20,000 UTF-16 code units (JavaScript string
+> `.length`), including JSON syntax and whitespace, measured before JSON parsing).
+> Do not include secrets or my sync code. Label the link "Add to
 > TaskMind" and tell me to review and confirm in the app. Never claim tasks were
 > saved merely because you generated the link.
 

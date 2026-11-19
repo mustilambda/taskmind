@@ -3,6 +3,7 @@ import * as chrono from "chrono-node";
 import { readTaskImport, uniqueImportedTasks, mergePendingImports } from "./taskImport";
 import EveningPlanner from "./EveningPlanner";
 import { dayKey } from "./eveningPlan";
+import PushNotifications from "./PushNotifications";
 
 /* ---------------------------------------------------------------- *
  * TaskMind — AI personal task organizer
@@ -77,7 +78,7 @@ const PROMPT =
 const NOTIF_DEFS = [
   { key: "daily", label: "Daily summary", desc: "A morning digest of what's due today." },
   { key: "overdue", label: "Overdue reminders", desc: "Nudge me when something slips past its date." },
-  { key: "priority", label: "High-priority alerts", desc: "Ping me the moment a task is marked High." },
+  { key: "priority", label: "High-priority alerts", desc: "Remind me when a high-priority task is due." },
 ];
 
 /* ---------------------------- theming ---------------------------- */
@@ -339,6 +340,8 @@ export default function App() {
   const [renamingCat, setRenamingCat] = useState(null);
   const [syncState, setSyncState] = useState("idle"); // idle | syncing | ok | error
   const [notifPerm, setNotifPerm] = useState(typeof Notification !== "undefined" ? Notification.permission : "unsupported");
+  const [backgroundEnabled, setBackgroundEnabled] = useState(() => localStorage.getItem("taskmind.backgroundEnabled") === "true");
+  useEffect(() => { localStorage.setItem("taskmind.backgroundEnabled", String(backgroundEnabled)); }, [backgroundEnabled]);
   const [, setTick] = useState(0); // forces a re-render each minute so overdue badges stay current
 
   const { dark, tasks, savedContext, notify, corrections } = state;
@@ -376,6 +379,7 @@ export default function App() {
   const notifiedRef = useRef(new Set());
   useEffect(() => {
     const check = () => {
+      if (backgroundEnabled) return;
       if (typeof Notification === "undefined" || Notification.permission !== "granted") return;
       if (!notify.overdue && !notify.priority && !notify.daily) return;
       const now = Date.now();
@@ -393,7 +397,7 @@ export default function App() {
     const i = setInterval(check, 20000);
     window.addEventListener("focus", check);
     return () => { clearInterval(i); window.removeEventListener("focus", check); };
-  }, [tasks, notify, notifPerm]);
+  }, [tasks, notify, notifPerm, backgroundEnabled]);
 
   // If a task's due time is edited to the future again, allow it to re-notify.
   useEffect(() => {
@@ -676,23 +680,16 @@ export default function App() {
     head1 = "All " + activeTasks.length + " tasks complete.";
     head2 = doneCount + " done today — nothing left.";
   } else {
-    const parts = [];
-    if (overdue.length) parts.push(overdue.length + " overdue");
-    if (high.length) parts.push(high.length + " high priority");
-    const rest = open.length - overdue.length - high.filter(t => !overdue.includes(t)).length;
-    if (rest > 0) parts.push(rest + " other");
-    head1 = open.length + " open task" + (open.length !== 1 ? "s" : "") + (doneCount ? " · " + doneCount + " done" : "") + ".";
-    head2 = overdue.length
-      ? overdue.length + " overdue · next up: " + overdue[0].title + "."
+    head1 = overdue.length
+      ? overdue.length + " overdue"
       : high.length
-      ? high.length + " high priority · next up: " + high[0].title + "."
-      : "Next up: " + open[0].title + ".";
+      ? high.length + " high priority"
+      : open.length + " open task" + (open.length !== 1 ? "s" : "");
+    head2 = "";
   }
+  const nextTask = open.length ? (overdue[0] || high[0] || open[0]) : null;
 
-  const subline = isFresh
-    ? new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" })
-    : new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" }) +
-      " · " + doneCount + " of " + activeTasks.length + " done";
+  const subline = new Date().toLocaleDateString("en-US", { weekday: "long", month: "long", day: "numeric" });
 
   // dynamic tabs: only categories that actually exist among the tasks
   const cats = [...new Set(activeTasks.map((t) => t.category).filter(Boolean))];
@@ -725,7 +722,7 @@ export default function App() {
           <Home
             c={c} head1={head1} head2={head2} subline={subline} draft={draft} setDraft={setDraft} addTask={addTask}
             filter={filter} setFilter={setFilter} filterKeys={filterKeys} visible={visible} newId={newId}
-            toggle={toggle} remove={remove} isFresh={isFresh}
+            toggle={toggle} remove={remove} isFresh={isFresh} nextTask={nextTask} nextOverdue={!!nextTask && overdue.includes(nextTask)}
             onEditTask={setEditingId} onRenameCat={setRenamingCat} snoozeTask={snoozeTask}
             openCount={open.length} doneCount={doneCount} totalCount={activeTasks.length} overdueCount={overdue.length} highCount={high.length}
             planner={<EveningPlanner c={c} tasks={tasks} onAdd={(task) => { setState((s) => ({ ...s, tasks: [...s.tasks, task] })); if (!task.ideaStage) setFilter("all"); }} onUpdate={updateTask} onToggle={toggle} />}
@@ -740,6 +737,7 @@ export default function App() {
             syncCode={code} syncState={syncState} lastSyncedAt={state.sync?.lastSyncedAt}
             connectSync={connectSync} disconnectSync={disconnectSync} pullNow={pullNow}
             corrections={corrections} resetLearning={resetLearning}
+            onBackgroundChange={setBackgroundEnabled}
           />
         )}
 
@@ -938,7 +936,7 @@ function IconBtn({ c, onClick, children, active }) {
   );
 }
 
-function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setFilter, filterKeys, visible, newId, toggle, remove, isFresh, onEditTask, onRenameCat, snoozeTask, openCount, doneCount, totalCount, overdueCount, highCount, planner }) {
+function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setFilter, filterKeys, visible, newId, toggle, remove, isFresh, nextTask, nextOverdue, onEditTask, onRenameCat, snoozeTask, doneCount, totalCount, overdueCount, planner }) {
   const [showDone, setShowDone] = useState(false);
   const pending = visible.filter((t) => !t.done);
   const completed = visible.filter((t) => t.done);
@@ -948,19 +946,20 @@ function Home({ c, head1, head2, subline, draft, setDraft, addTask, filter, setF
   return (
     <div className="tm-home">
       <section className="tm-hero" style={{ background: `linear-gradient(145deg, ${c.card}, ${c.bg})`, borderColor: c.line }}>
-        <div className="tm-hero-copy">
-          <div className="tm-eyebrow" style={{ color: c.accent }}>{subline}</div>
-          <div className="serif tm-headline">{head1}</div>
-          <div className="serif tm-headline tm-headline-muted" style={{ color: c.sub }}>{head2}</div>
+        <div className="tm-hero-top">
+          <span className="tm-eyebrow" style={{ color: c.sub }}>{subline}</span>
+          {!isFresh && <span className="tm-hero-count" style={{ color: c.sub }}>{doneCount}/{totalCount} done</span>}
         </div>
-        <div className="tm-progress-orb" style={{ background: `conic-gradient(${c.accent} ${progress}%, ${c.line} 0)` }} aria-label={`${progress}% complete`}>
-          <div style={{ background: c.bg }}><strong>{progress}%</strong><span>done</span></div>
-        </div>
-        {!isFresh && <div className="tm-stats">
-          <div><strong>{openCount}</strong><span>open</span></div>
-          <div><strong style={{ color: overdueCount ? c.overdue : c.text }}>{overdueCount}</strong><span>overdue</span></div>
-          <div><strong style={{ color: highCount ? c.pris.High : c.text }}>{highCount}</strong><span>high priority</span></div>
-        </div>}
+        <div className="serif tm-headline" style={{ color: overdueCount && !isFresh ? c.overdue : c.text }}>{head1}</div>
+        {head2 && <div className="tm-hero-sub" style={{ color: c.sub }}>{head2}</div>}
+        {nextTask && (
+          <div className="tm-next">
+            <button className="tm-next-check" onClick={() => !nextTask.pending && toggle(nextTask.id)} aria-label={`Complete ${nextTask.title}`} style={{ borderColor: c.faint }} />
+            <span className="tm-next-label" style={{ color: c.sub }}>Next up</span>
+            <span className="tm-next-title">{nextTask.title}</span>
+          </div>
+        )}
+        {!isFresh && <div className="tm-hero-bar" style={{ background: c.line }} aria-label={`${progress}% complete`}><div style={{ width: progress + "%", background: c.accent }} /></div>}
       </section>
 
       {planner}
@@ -1182,7 +1181,7 @@ function Settings(props) {
     c, dark, setDark, ctxMode, setCtxMode, savedContext, clearContext, aiAbout, setAiAbout, generating,
     generateProfile, manual, setManual, saveManual, promptCopied, copyPrompt, pasteText, setPasteText, savePasted,
     notify, toggleNotify, notifPerm, enableNotifs, syncCode, syncState, lastSyncedAt, connectSync, disconnectSync, pullNow,
-    corrections, resetLearning,
+    corrections, resetLearning, onBackgroundChange,
   } = props;
 
   const segBase = { flex: 1, cursor: "pointer", border: "none", borderRadius: 9, fontFamily: "inherit", fontSize: 12.5, fontWeight: 500, padding: "9px 0", transition: "all .15s" };
@@ -1293,6 +1292,7 @@ function Settings(props) {
       </Section>
 
       <Section c={c} title="Notifications">
+        <PushNotifications c={c} code={syncCode} onChange={onBackgroundChange} />
         <PermBanner c={c} notifPerm={notifPerm} enableNotifs={enableNotifs} />
         {NOTIF_DEFS.map((n, i) => (
           <div key={n.key} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "15px 0", borderTop: i === 0 ? "none" : "1px solid " + c.line }}>
